@@ -12,43 +12,59 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+const YF_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.5',
+  'Accept-Encoding': 'gzip, deflate, br',
+  'Cache-Control': 'no-cache',
+  'Pragma': 'no-cache',
+};
+
+async function yfFetch(url, timeoutMs = 10000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { headers: YF_HEADERS, signal: controller.signal });
+    return res;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchYahooPrice(ticker) {
+  // Try query2 first (generally less rate-limited for server IPs), fall back to query1
+  const urls = [
+    `https://query2.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`,
+    `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`,
+  ];
+  for (const url of urls) {
+    try {
+      const res = await yfFetch(url);
+      if (!res.ok) {
+        console.warn(`[prices] ${ticker} ${url.includes('query2') ? 'query2' : 'query1'} → HTTP ${res.status}`);
+        continue;
+      }
+      const data = await res.json();
+      const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice ?? null;
+      if (typeof price === 'number') return price;
+    } catch (err) {
+      console.warn(`[prices] ${ticker} fetch error:`, err.message);
+    }
+  }
+  return null;
+}
+
 app.get('/api/prices', async (req, res) => {
   const { tickers } = req.query;
-  if (!tickers || typeof tickers !== 'string') {
-    return res.json({});
-  }
+  if (!tickers || typeof tickers !== 'string') return res.json({});
 
-  const tickerList = tickers
-    .split(',')
-    .map((t) => t.trim().toUpperCase())
-    .filter(Boolean)
-    .slice(0, 20); // safety limit
-
+  const tickerList = tickers.split(',').map(t => t.trim().toUpperCase()).filter(Boolean).slice(0, 20);
   const results = {};
 
-  await Promise.all(
-    tickerList.map(async (ticker) => {
-      try {
-        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`;
-        const response = await fetch(url, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            Accept: 'application/json',
-          },
-          timeout: 8000,
-        });
-        if (!response.ok) {
-          results[ticker] = null;
-          return;
-        }
-        const data = await response.json();
-        const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice ?? null;
-        results[ticker] = typeof price === 'number' ? price : null;
-      } catch {
-        results[ticker] = null;
-      }
-    })
-  );
+  await Promise.all(tickerList.map(async (ticker) => {
+    results[ticker] = await fetchYahooPrice(ticker);
+  }));
 
   res.json(results);
 });
@@ -68,14 +84,8 @@ app.get('/api/history', async (req, res) => {
   await Promise.all(
     tickerList.map(async (ticker) => {
       try {
-        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1h&period1=${period1}&period2=${period2}`;
-        const response = await fetch(url, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            Accept: 'application/json',
-          },
-          timeout: 10000,
-        });
+        const url = `https://query2.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1h&period1=${period1}&period2=${period2}`;
+        const response = await yfFetch(url, 12000);
         if (!response.ok) { results[ticker] = []; return; }
         const data = await response.json();
         const result = data?.chart?.result?.[0];
