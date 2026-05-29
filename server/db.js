@@ -74,6 +74,11 @@ export async function initSchema() {
     );
   `);
 
+  // Migrate: add pin_hash column if it was created before auth was added
+  await pool.query(`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS pin_hash TEXT NOT NULL DEFAULT '';
+  `);
+
   // Seed fixed users (upsert PIN hash so it updates if changed)
   for (const u of USERS) {
     await pool.query(
