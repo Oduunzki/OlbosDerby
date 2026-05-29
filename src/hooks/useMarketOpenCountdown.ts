@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 
 function getETTimeParts(): { weekday: number; totalSeconds: number } {
   const now = new Date();
@@ -44,7 +44,7 @@ export function useMarketOpenCountdown() {
     return () => clearInterval(id);
   }, []);
 
-  const dismiss = () => setShow(false);
+  const dismiss = useCallback(() => setShow(false), []);
 
   return { show, dismiss };
 }
