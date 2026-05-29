@@ -71,7 +71,6 @@ export function useStockPrices(tickers: string[]): UseStockPricesReturn {
 
   useEffect(() => {
     fetchPrices();
-    if (!checkMarketOpen()) return () => { abortRef.current?.abort(); };
     const interval = setInterval(fetchPrices, 5_000);
     return () => {
       clearInterval(interval);
