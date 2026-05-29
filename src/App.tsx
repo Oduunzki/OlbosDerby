@@ -18,7 +18,7 @@ const shortPositions: ShortStock[] = (shortsData as { darkHorse: DarkHorseConfig
 const darkHorse: DarkHorseConfig = (shortsData as { darkHorse: DarkHorseConfig; positions: ShortStock[] }).darkHorse;
 
 function formatTime(date: Date, timeZone?: string): string {
-  return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone });
+  return date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone });
 }
 
 function useNow() {
@@ -131,9 +131,9 @@ export default function App() {
               {isMarketOpen ? 'LIVE' : 'CLOSED'}
             </div>
 
-            <div style={{ fontFamily: 'Fira Code, monospace', fontSize: '11px', color: '#3a5040', lineHeight: 1.4, textAlign: 'right' }}>
+            <div style={{ fontFamily: 'Fira Code, monospace', fontSize: '11px', color: '#7aaa88', lineHeight: 1.4, textAlign: 'right' }}>
               <div>{formatTime(now)}</div>
-              <div style={{ color: '#2a3e30' }}>NY {formatTime(now, 'America/New_York')}</div>
+              <div style={{ color: '#4a7058' }}>NY {formatTime(now, 'America/New_York')}</div>
             </div>
 
             {loading && !lastUpdated && (
