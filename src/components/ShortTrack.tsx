@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { ShortStock, DarkHorseConfig } from '../types';
 import { ReplayModal } from './ReplayModal';
 
@@ -74,6 +74,26 @@ function StatCard({ label, value, color, sub }: StatCardProps) {
 export function ShortTrack({ positions, prices, tickChanges, darkHorse }: Props) {
 
   const [showReplay, setShowReplay] = useState(false);
+  const [tickCounters, setTickCounters] = useState<Record<string, number>>({});
+  const [absorbCounters, setAbsorbCounters] = useState<Record<string, number>>({});
+  const prevTicksRef = useRef<Record<string, number | null>>({});
+
+  useEffect(() => {
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    for (const stock of positions) {
+      const sym = stock.yahooSymbol;
+      const tc = tickChanges[sym];
+      if (tc != null && tc !== 0 && tc !== prevTicksRef.current[sym]) {
+        prevTicksRef.current[sym] = tc;
+        setTickCounters(c => ({ ...c, [sym]: (c[sym] ?? 0) + 1 }));
+        timers.push(setTimeout(() => {
+          setAbsorbCounters(c => ({ ...c, [sym]: (c[sym] ?? 0) + 1 }));
+        }, 1550));
+      }
+    }
+    return () => timers.forEach(clearTimeout);
+  }, [tickChanges, positions]);
+
   const dhProgress = getDarkHorseProgress(darkHorse);
 
   const gains = positions.map(s => {
@@ -346,45 +366,51 @@ export function ShortTrack({ positions, prices, tickChanges, darkHorse }: Props)
                     transition: 'left 1.2s ease',
                   }}>
                     <div
-                      className="horse-gallop"
-                      style={{
-                        fontSize: '22px',
-                        animationDuration: gallopDuration(ahead),
-                        filter: isWin
-                          ? 'drop-shadow(0 0 7px rgba(114,196,138,0.95))'
-                          : isNeg
-                          ? 'drop-shadow(0 0 6px rgba(196,114,114,0.8))'
-                          : 'drop-shadow(0 0 5px rgba(200,160,64,0.7))',
-                      }}
+                      key={absorbCounters[stock.yahooSymbol] ?? 'init'}
+                      className={absorbCounters[stock.yahooSymbol] ? 'horse-absorb-pulse' : ''}
                     >
-                      {isNeg
-                        ? '💀'
-                        : <span style={{ display: 'inline-block', transform: 'scaleX(-1)' }}>🏇</span>}
+                      <div
+                        className="horse-gallop"
+                        style={{
+                          fontSize: '22px',
+                          animationDuration: gallopDuration(ahead),
+                          filter: isWin
+                            ? 'drop-shadow(0 0 7px rgba(114,196,138,0.95))'
+                            : isNeg
+                            ? 'drop-shadow(0 0 6px rgba(196,114,114,0.8))'
+                            : 'drop-shadow(0 0 5px rgba(200,160,64,0.7))',
+                        }}
+                      >
+                        {isNeg
+                          ? '💀'
+                          : <span style={{ display: 'inline-block', transform: 'scaleX(-1)' }}>🏇</span>}
+                      </div>
                     </div>
                   </div>
                 )}
 
-                {/* Tick change indicator */}
+                {/* Tick — flies in from the right, absorbed by horse */}
                 {(() => {
                   const tc = tickChanges[stock.yahooSymbol];
-                  if (tc == null || tc === 0 || hX == null) return null;
+                  const counter = tickCounters[stock.yahooSymbol];
+                  if (tc == null || tc === 0 || hX == null || !counter) return null;
+                  const pctChange = (tc / stock.buyPrice) * 100;
                   return (
                     <div
-                      key={tc}
-                      className="tick-flash"
+                      key={counter}
+                      className="tick-fly"
                       style={{
-                        position: 'absolute', top: '2px',
+                        position: 'absolute',
+                        top: '50%',
                         left: `${hX}%`,
-                        transform: 'translateX(-50%)',
-                        fontFamily: 'Fira Code, monospace', fontSize: '10px',
+                        fontFamily: 'Fira Code, monospace', fontSize: '11px',
                         fontWeight: 700,
                         color: tc > 0 ? WIN : LOSE,
                         whiteSpace: 'nowrap',
                         zIndex: 11,
-                        pointerEvents: 'none',
                       }}
                     >
-                      {tc > 0 ? '▲' : '▼'} {tc > 0 ? '+' : ''}{fmt(Math.abs(tc))}
+                      {tc > 0 ? '▲' : '▼'} {pctChange > 0 ? '+' : ''}{pctChange.toFixed(2)}%
                     </div>
                   );
                 })()}
