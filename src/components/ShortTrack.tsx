@@ -9,7 +9,6 @@ interface Props {
   prices: Record<string, number | null>;
   tickChanges: Record<string, number | null>;
   darkHorse: DarkHorseConfig;
-  isMarketOpen: boolean;
 }
 
 function getDarkHorseProgress(config: DarkHorseConfig): number {
@@ -74,7 +73,7 @@ function StatCard({ label, value, color, sub }: StatCardProps) {
   );
 }
 
-export function ShortTrack({ positions, prices, tickChanges, darkHorse, isMarketOpen }: Props) {
+export function ShortTrack({ positions, prices, tickChanges, darkHorse }: Props) {
   const [showCards, setShowCards] = useState(false);
   const [showReplay, setShowReplay] = useState(false);
   const dhProgress = getDarkHorseProgress(darkHorse);

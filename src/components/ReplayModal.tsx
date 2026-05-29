@@ -275,7 +275,6 @@ export function ReplayModal({ positions, darkHorse, onClose }: Props) {
                       const price = snap.prices[stock.yahooSymbol];
                       const prog = price != null ? (price - stock.buyPrice) / stock.buyPrice : null;
                       const hX = prog != null ? toX(clampV(prog)) : null;
-                      const dhX = toX(clampV(dhProgress));
                       const ahead = prog != null ? prog - dhProgress : null;
                       const isWin = ahead != null && ahead >= 0;
                       const isNeg = prog != null && prog < 0;
