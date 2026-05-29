@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import type { ShortStock, DarkHorseConfig } from '../types';
-import { ShortHorseLane } from './ShortHorseLane';
 import { ReplayModal } from './ReplayModal';
 
 interface Props {
@@ -73,7 +72,7 @@ function StatCard({ label, value, color, sub }: StatCardProps) {
 }
 
 export function ShortTrack({ positions, prices, tickChanges, darkHorse }: Props) {
-  const [showCards] = useState(false); // cards moved below betting in App
+
   const [showReplay, setShowReplay] = useState(false);
   const dhProgress = getDarkHorseProgress(darkHorse);
 
