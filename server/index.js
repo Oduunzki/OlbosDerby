@@ -67,6 +67,9 @@ app.get('/api/prices', async (req, res) => {
   }));
 
   res.json(results);
+
+  // Persist to DB in the background (don't await — don't block the response)
+  db.savePrices(results).catch(err => console.error('[prices] DB save error:', err.message));
 });
 
 app.get('/api/history', async (req, res) => {
@@ -107,6 +110,22 @@ app.get('/api/history', async (req, res) => {
   );
 
   res.json(results);
+});
+
+// Stored price history (DB-backed, falls back to Yahoo Finance)
+app.get('/api/price-history', async (req, res) => {
+  const { tickers, from } = req.query;
+  if (!tickers || !from || typeof tickers !== 'string' || typeof from !== 'string') {
+    return res.json({});
+  }
+  try {
+    const tickerList = tickers.split(',').map(t => t.trim().toUpperCase()).filter(Boolean);
+    const history = await db.getPriceHistory(tickerList, new Date(from));
+    res.json(history);
+  } catch (err) {
+    console.error('[price-history]', err.message);
+    res.status(500).json({});
+  }
 });
 
 // Health check

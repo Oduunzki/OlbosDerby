@@ -72,6 +72,18 @@ export async function initSchema() {
       user_id    TEXT NOT NULL REFERENCES users(id),
       expires_at TIMESTAMPTZ NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS price_history (
+      id          BIGSERIAL PRIMARY KEY,
+      ticker      TEXT NOT NULL,
+      price       NUMERIC(12,4) NOT NULL,
+      captured_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_price_history_ticker_time
+      ON price_history (ticker, captured_at DESC);
   `);
 
   // Migrate: add pin_hash column if it was created before auth was added
@@ -342,6 +354,36 @@ export async function getWeekResult(weekKey, seasonId) {
     [weekKey, seasonId]
   );
   return res.rows[0] ?? null;
+}
+
+// ── Price history ─────────────────────────────────────────────────────────────
+
+export async function savePrices(priceMap) {
+  const entries = Object.entries(priceMap).filter(([, p]) => typeof p === 'number');
+  if (entries.length === 0) return;
+  const placeholders = entries.map((_, i) => `($${i * 2 + 1}, $${i * 2 + 2}, NOW())`).join(', ');
+  const values = entries.flatMap(([ticker, price]) => [ticker, price]);
+  await pool.query(
+    `INSERT INTO price_history (ticker, price, captured_at) VALUES ${placeholders}`,
+    values
+  );
+}
+
+export async function getPriceHistory(tickers, from) {
+  const res = await pool.query(
+    `SELECT ticker, price, captured_at
+     FROM price_history
+     WHERE ticker = ANY($1) AND captured_at >= $2
+     ORDER BY ticker, captured_at ASC`,
+    [tickers, from]
+  );
+  // Group by ticker
+  const out = {};
+  for (const row of res.rows) {
+    if (!out[row.ticker]) out[row.ticker] = [];
+    out[row.ticker].push({ date: row.captured_at, close: parseFloat(row.price) });
+  }
+  return out;
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
