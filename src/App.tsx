@@ -17,8 +17,17 @@ const stocks: Stock[] = stocksData as Stock[];
 const shortPositions: ShortStock[] = (shortsData as { darkHorse: DarkHorseConfig; positions: ShortStock[] }).positions;
 const darkHorse: DarkHorseConfig = (shortsData as { darkHorse: DarkHorseConfig; positions: ShortStock[] }).darkHorse;
 
-function formatTime(date: Date): string {
-  return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+function formatTime(date: Date, timeZone?: string): string {
+  return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone });
+}
+
+function useNow() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return now;
 }
 
 export default function App() {
@@ -58,6 +67,7 @@ export default function App() {
     ...shortPositions.map(s => s.yahooSymbol),
   ];
   const { prices, tickChanges, lastUpdated, isMarketOpen, loading, error } = useStockPrices(allTickers);
+  const now = useNow();
 
   if (!authToken || !authUserId) {
     return <LoginScreen onLogin={handleLogin} />;
@@ -121,11 +131,10 @@ export default function App() {
               {isMarketOpen ? 'LIVE' : 'CLOSED'}
             </div>
 
-            {lastUpdated && (
-              <span style={{ fontFamily: 'Fira Code, monospace', fontSize: '12px', color: '#3a5040' }}>
-                {formatTime(lastUpdated)}
-              </span>
-            )}
+            <div style={{ fontFamily: 'Fira Code, monospace', fontSize: '11px', color: '#3a5040', lineHeight: 1.4, textAlign: 'right' }}>
+              <div>{formatTime(now)}</div>
+              <div style={{ color: '#2a3e30' }}>NY {formatTime(now, 'America/New_York')}</div>
+            </div>
 
             {loading && !lastUpdated && (
               <span style={{ fontSize: '12px', color: '#3a5040', fontStyle: 'italic' }}>loading…</span>
