@@ -127,7 +127,6 @@ export default function App() {
               prices={prices}
               tickChanges={tickChanges}
               darkHorse={darkHorse}
-              isMarketOpen={isMarketOpen}
             />
           </section>
         )}
