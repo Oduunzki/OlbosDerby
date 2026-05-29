@@ -369,6 +369,20 @@ export async function savePrices(priceMap) {
   );
 }
 
+export async function getLatestPrices(tickers) {
+  if (tickers.length === 0) return {};
+  const res = await pool.query(
+    `SELECT DISTINCT ON (ticker) ticker, price
+     FROM price_history
+     WHERE ticker = ANY($1)
+     ORDER BY ticker, captured_at DESC`,
+    [tickers]
+  );
+  const out = {};
+  for (const row of res.rows) out[row.ticker] = parseFloat(row.price);
+  return out;
+}
+
 export async function getPriceHistory(tickers, from) {
   const res = await pool.query(
     `SELECT ticker, price, captured_at

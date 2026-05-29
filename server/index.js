@@ -3,7 +3,10 @@ import cors from 'cors';
 import fetch from 'node-fetch';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import YahooFinance from 'yahoo-finance2';
 import * as db from './db.js';
+
+const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -32,8 +35,7 @@ async function yfFetch(url, timeoutMs = 10000) {
   }
 }
 
-async function fetchYahooPrice(ticker) {
-  // Try query2 first (generally less rate-limited for server IPs), fall back to query1
+async function fetchYahooPriceRaw(ticker) {
   const urls = [
     `https://query2.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`,
     `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`,
@@ -49,10 +51,21 @@ async function fetchYahooPrice(ticker) {
       const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice ?? null;
       if (typeof price === 'number') return price;
     } catch (err) {
-      console.warn(`[prices] ${ticker} fetch error:`, err.message);
+      console.warn(`[prices] ${ticker} raw fetch error:`, err.message);
     }
   }
   return null;
+}
+
+async function fetchYahooPrice(ticker) {
+  try {
+    const quote = await yahooFinance.quote(ticker, {}, { validateResult: false });
+    const price = quote?.regularMarketPrice ?? null;
+    if (typeof price === 'number') return price;
+  } catch (err) {
+    console.warn(`[prices] ${ticker} yahoo-finance2 error:`, err.message);
+  }
+  return fetchYahooPriceRaw(ticker);
 }
 
 app.get('/api/prices', async (req, res) => {
@@ -65,6 +78,22 @@ app.get('/api/prices', async (req, res) => {
   await Promise.all(tickerList.map(async (ticker) => {
     results[ticker] = await fetchYahooPrice(ticker);
   }));
+
+  // Fill any nulls with last known DB price as fallback
+  const nullTickers = tickerList.filter(t => results[t] == null);
+  if (nullTickers.length > 0) {
+    try {
+      const cached = await db.getLatestPrices(nullTickers);
+      for (const t of nullTickers) {
+        if (cached[t] != null) {
+          results[t] = cached[t];
+          console.log(`[prices] ${t} using cached price ${cached[t]}`);
+        }
+      }
+    } catch (err) {
+      console.warn('[prices] DB fallback error:', err.message);
+    }
+  }
 
   res.json(results);
 
