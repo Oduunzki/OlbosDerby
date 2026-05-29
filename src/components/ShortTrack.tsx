@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import type { ShortStock, DarkHorseConfig } from '../types';
 import { ShortHorseLane } from './ShortHorseLane';
-import { BettingPool } from './BettingPool';
 import { ReplayModal } from './ReplayModal';
 
 interface Props {
@@ -488,9 +487,6 @@ export function ShortTrack({ positions, prices, tickChanges, darkHorse }: Props)
           )}
         </div>
       )}
-
-      {/* ── Betting pool ── */}
-      <BettingPool positions={positions} darkHorse={darkHorse} />
 
       {/* ── Individual horse cards (collapsible) ── */}
       <button
