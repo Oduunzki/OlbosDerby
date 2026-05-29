@@ -11,7 +11,7 @@ interface Props {
 
 function getDarkHorseProgress(config: DarkHorseConfig): number {
   const start = new Date(config.startDate);
-  start.setHours(16, 0, 0, 0);
+  start.setUTCHours(20, 0, 0, 0); // 20:00 UTC = 16:00 EDT (UTC-4)
   const now = new Date();
   const weeks = Math.max(0, (now.getTime() - start.getTime()) / (7 * 86_400_000));
   return (config.pctPerWeek / 100) * weeks;
