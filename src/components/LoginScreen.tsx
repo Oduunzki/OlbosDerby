@@ -131,7 +131,7 @@ export function LoginScreen({ onLogin }: Props) {
               disabled={pin.length !== 4 || loading}
               style={{
                 width: '100%', marginTop: '14px', padding: '14px',
-                borderRadius: '10px', border: 'none',
+                borderRadius: '10px',
                 cursor: pin.length === 4 ? 'pointer' : 'not-allowed',
                 background: pin.length === 4 ? selectedUser.color + '22' : '#0a1410',
                 color: pin.length === 4 ? selectedUser.color : '#2a4030',
