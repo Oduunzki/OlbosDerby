@@ -386,32 +386,63 @@ export async function getPriceHistory(tickers, from) {
   return out;
 }
 
-// ── Auth ──────────────────────────────────────────────────────────────────────
+// ── Auth (with in-memory fallback when DB unavailable) ────────────────────────
+
+let dbAvailable = true;
+const memSessions = new Map(); // token → { userId, expires }
+
+export function setDbAvailable(v) { dbAvailable = v; }
 
 export async function login(userId, pin) {
-  const res = await pool.query('SELECT pin_hash FROM users WHERE id = $1', [userId]);
-  if (res.rows.length === 0) throw new Error('User not found');
-  const valid = await bcrypt.compare(pin, res.rows[0].pin_hash);
+  if (dbAvailable) {
+    try {
+      const res = await pool.query('SELECT pin_hash FROM users WHERE id = $1', [userId]);
+      if (res.rows.length === 0) throw new Error('User not found');
+      const valid = await bcrypt.compare(pin, res.rows[0].pin_hash);
+      if (!valid) throw new Error('Wrong PIN');
+      const token = randomBytes(32).toString('hex');
+      const expires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      await pool.query(
+        'INSERT INTO sessions (token, user_id, expires_at) VALUES ($1, $2, $3)',
+        [token, userId, expires]
+      );
+      return token;
+    } catch (err) {
+      if (err.message === 'User not found' || err.message === 'Wrong PIN') throw err;
+      // DB connection failure — fall through to in-memory
+    }
+  }
+  // In-memory fallback using hard-coded USERS list
+  const user = USERS.find(u => u.id === userId);
+  if (!user) throw new Error('User not found');
+  const valid = await bcrypt.compare(pin, user.pinHash);
   if (!valid) throw new Error('Wrong PIN');
-
   const token = randomBytes(32).toString('hex');
-  const expires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
-  await pool.query(
-    'INSERT INTO sessions (token, user_id, expires_at) VALUES ($1, $2, $3)',
-    [token, userId, expires]
-  );
+  memSessions.set(token, { userId, expires: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) });
   return token;
 }
 
 export async function validateSession(token) {
   if (!token) return null;
-  const res = await pool.query(
-    'SELECT user_id FROM sessions WHERE token = $1 AND expires_at > NOW()',
-    [token]
-  );
-  return res.rows[0]?.user_id ?? null;
+  if (dbAvailable) {
+    try {
+      const res = await pool.query(
+        'SELECT user_id FROM sessions WHERE token = $1 AND expires_at > NOW()',
+        [token]
+      );
+      return res.rows[0]?.user_id ?? null;
+    } catch {
+      // Fall through to in-memory
+    }
+  }
+  const s = memSessions.get(token);
+  if (!s || s.expires < new Date()) return null;
+  return s.userId;
 }
 
 export async function logout(token) {
-  await pool.query('DELETE FROM sessions WHERE token = $1', [token]);
+  memSessions.delete(token);
+  if (dbAvailable) {
+    try { await pool.query('DELETE FROM sessions WHERE token = $1', [token]); } catch { /* ignore */ }
+  }
 }

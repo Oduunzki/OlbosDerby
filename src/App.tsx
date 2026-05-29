@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useMarketOpenCountdown } from './hooks/useMarketOpenCountdown';
 import stocksData from './data/stocks.json';
 import shortsData from './data/shorts.json';
 import type { Stock, ShortStock, DarkHorseConfig } from './types';
@@ -10,6 +11,7 @@ import { ShortHorseLane } from './components/ShortHorseLane';
 import { BettingWindow } from './components/BettingWindow';
 import { BettingPanel } from './components/BettingPanel';
 import { LoginScreen } from './components/LoginScreen';
+import { CountdownOverlay } from './components/CountdownOverlay';
 
 const stocks: Stock[] = stocksData as Stock[];
 const shortPositions: ShortStock[] = (shortsData as { darkHorse: DarkHorseConfig; positions: ShortStock[] }).positions;
@@ -21,6 +23,7 @@ function formatTime(date: Date): string {
 
 export default function App() {
   const [bettingOpen, setBettingOpen] = useState(false);
+  const { show: showCountdown, dismiss: dismissCountdown } = useMarketOpenCountdown();
   const [authToken, setAuthToken] = useState<string | null>(() => localStorage.getItem('auth-token'));
   const [authUserId, setAuthUserId] = useState<string | null>(() => localStorage.getItem('auth-user-id'));
 
@@ -49,16 +52,16 @@ export default function App() {
     setAuthUserId(null);
   };
 
-  if (!authToken || !authUserId) {
-    return <LoginScreen onLogin={handleLogin} />;
-  }
-
+  // Must be called before any conditional returns to satisfy rules of hooks
   const allTickers = [
     ...stocks.map(s => s.ticker),
     ...shortPositions.map(s => s.yahooSymbol),
   ];
-
   const { prices, tickChanges, lastUpdated, isMarketOpen, loading, error } = useStockPrices(allTickers);
+
+  if (!authToken || !authUserId) {
+    return <LoginScreen onLogin={handleLogin} />;
+  }
 
   return (
     <div style={{ minHeight: '100vh', background: '#07100a' }}>
@@ -157,27 +160,34 @@ export default function App() {
       {/* ── Main ── */}
       <main style={{ maxWidth: '900px', margin: '0 auto', padding: '36px 20px' }}>
 
-        {stocks.length > 0 && (
-          <section style={{ marginBottom: '48px' }}>
-            <h2 style={{
-              fontFamily: "'Playfair Display', serif", color: '#c8a040',
-              fontSize: '18px', margin: '0 0 20px',
-            }}>Long Positions</h2>
-            <RaceTrack stocks={stocks} prices={prices} tickChanges={tickChanges} isMarketOpen={isMarketOpen} />
-            <Scoreboard stocks={stocks} prices={prices} />
-          </section>
-        )}
+        {/* Race sections wrapped together so the countdown overlay covers both */}
+        <div style={{ position: 'relative', marginBottom: '48px' }}>
+          {stocks.length > 0 && (
+            <section style={{ marginBottom: '48px' }}>
+              <h2 style={{
+                fontFamily: "'Playfair Display', serif", color: '#c8a040',
+                fontSize: '18px', margin: '0 0 20px',
+              }}>Long Positions</h2>
+              <RaceTrack stocks={stocks} prices={prices} tickChanges={tickChanges} isMarketOpen={isMarketOpen} />
+              <Scoreboard stocks={stocks} prices={prices} />
+            </section>
+          )}
 
-        {shortPositions.length > 0 && (
-          <section>
-            <ShortTrack
-              positions={shortPositions}
-              prices={prices}
-              tickChanges={tickChanges}
-              darkHorse={darkHorse}
-            />
-          </section>
-        )}
+          {shortPositions.length > 0 && (
+            <section>
+              <ShortTrack
+                positions={shortPositions}
+                prices={prices}
+                tickChanges={tickChanges}
+                darkHorse={darkHorse}
+              />
+            </section>
+          )}
+
+          {showCountdown && (
+            <CountdownOverlay onComplete={dismissCountdown} onSkip={dismissCountdown} />
+          )}
+        </div>
 
         {/* Betting */}
         <section style={{ marginTop: '48px' }}>
@@ -246,6 +256,7 @@ export default function App() {
         </svg>
         Add Horse
       </button>
+
 
       <BettingWindow isOpen={bettingOpen} onClose={() => setBettingOpen(false)} />
     </div>

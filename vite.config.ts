@@ -4,6 +4,9 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  optimizeDeps: {
+    include: ['lottie-react'],
+  },
   server: {
     proxy: {
       '/api': 'http://localhost:4000',

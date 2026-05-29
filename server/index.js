@@ -274,7 +274,7 @@ db.initSchema()
   })
   .catch(err => {
     console.error('DB init failed:', err.message);
-    // Start anyway so the race track still works without DB
+    db.setDbAvailable(false);
     app.listen(PORT, () => {
       console.log(`HeiaStock Derby running on http://localhost:${PORT} (no DB)`);
     });
