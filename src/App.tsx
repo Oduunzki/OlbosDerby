@@ -6,6 +6,7 @@ import { useStockPrices } from './hooks/useStockPrices';
 import { RaceTrack } from './components/RaceTrack';
 import { Scoreboard } from './components/Scoreboard';
 import { ShortTrack } from './components/ShortTrack';
+import { ShortHorseLane } from './components/ShortHorseLane';
 import { BettingWindow } from './components/BettingWindow';
 import { BettingPanel } from './components/BettingPanel';
 import { LoginScreen } from './components/LoginScreen';
@@ -185,6 +186,33 @@ export default function App() {
           </h2>
           <BettingPanel shortPositions={shortPositions} darkHorse={darkHorse} currentUserId={authUserId} authToken={authToken} />
         </section>
+
+        {/* Horse Details */}
+        {shortPositions.length > 0 && (
+          <section style={{ marginTop: '48px' }}>
+            <h2 style={{ fontFamily: "'Playfair Display', serif", color: '#c8a040', fontSize: '18px', margin: '0 0 20px' }}>
+              Horse Details
+            </h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {[...shortPositions]
+                .sort((a, b) => {
+                  const pa = prices[a.yahooSymbol] != null ? (prices[a.yahooSymbol]! - a.buyPrice) / a.buyPrice : -Infinity;
+                  const pb = prices[b.yahooSymbol] != null ? (prices[b.yahooSymbol]! - b.buyPrice) / b.buyPrice : -Infinity;
+                  return pb - pa;
+                })
+                .map((stock, idx) => (
+                  <ShortHorseLane
+                    key={stock.id}
+                    stock={stock}
+                    currentPrice={prices[stock.yahooSymbol] ?? null}
+                    tickChange={tickChanges[stock.yahooSymbol] ?? null}
+                    darkHorse={darkHorse}
+                    rank={idx + 1}
+                  />
+                ))}
+            </div>
+          </section>
+        )}
 
         <div style={{ height: '80px' }} />
       </main>

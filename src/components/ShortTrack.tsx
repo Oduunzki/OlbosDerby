@@ -73,7 +73,7 @@ function StatCard({ label, value, color, sub }: StatCardProps) {
 }
 
 export function ShortTrack({ positions, prices, tickChanges, darkHorse }: Props) {
-  const [showCards, setShowCards] = useState(false);
+  const [showCards] = useState(false); // cards moved below betting in App
   const [showReplay, setShowReplay] = useState(false);
   const dhProgress = getDarkHorseProgress(darkHorse);
 
@@ -488,41 +488,6 @@ export function ShortTrack({ positions, prices, tickChanges, darkHorse }: Props)
         </div>
       )}
 
-      {/* ── Individual horse cards (collapsible) ── */}
-      <button
-        onClick={() => setShowCards(v => !v)}
-        style={{
-          width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '10px 16px', marginBottom: showCards ? '12px' : 0,
-          background: '#0d1c10', border: '1px solid #1e3525', borderRadius: '10px',
-          cursor: 'pointer', color: '#4a6050',
-          fontFamily: 'Fira Code, monospace', fontSize: '11px', letterSpacing: '0.08em',
-          textTransform: 'uppercase',
-        }}
-      >
-        <span>Horse details</span>
-        <span style={{
-          display: 'inline-block',
-          transform: showCards ? 'rotate(180deg)' : 'rotate(0deg)',
-          transition: 'transform 0.2s',
-          fontSize: '14px',
-        }}>▾</span>
-      </button>
-
-      {showCards && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {ranked.map((stock, idx) => (
-            <ShortHorseLane
-              key={stock.id}
-              stock={stock}
-              currentPrice={prices[stock.yahooSymbol] ?? null}
-              tickChange={tickChanges[stock.yahooSymbol] ?? null}
-              darkHorse={darkHorse}
-              rank={idx + 1}
-            />
-          ))}
-        </div>
-      )}
 
       {showReplay && (
         <ReplayModal
