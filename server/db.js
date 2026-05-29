@@ -1,4 +1,6 @@
 import pg from 'pg';
+import bcrypt from 'bcryptjs';
+import { randomBytes } from 'crypto';
 
 const { Pool } = pg;
 
@@ -8,10 +10,10 @@ const pool = new Pool({
 });
 
 const USERS = [
-  { id: 'bonna',   name: 'Bønna',   color: '#22C55E' },
-  { id: 'hakkern', name: 'Håkkern', color: '#EF4444' },
-  { id: 'dunzter', name: 'Dunzter', color: '#3B82F6' },
-  { id: 'schjell', name: 'Schjell', color: '#F59E0B' },
+  { id: 'bonna',   name: 'Bønna',   color: '#22C55E', pinHash: '$2b$10$9/F0NHxJ8pxvQJaGPeXL7uU32eh2iCXKffN222Ld4p28Qtzr5Hvlm' },
+  { id: 'hakkern', name: 'Håkkern', color: '#EF4444', pinHash: '$2b$10$VOCykMuBY2oZMv8Xzb/h3eNFiC8AAtlPEZ8yMjNdGmWrYwRK.vLYy' },
+  { id: 'dunzter', name: 'Dunzter', color: '#3B82F6', pinHash: '$2b$10$.kxuHS9UZVk9XmRJLJ0FzuqRwjWkxzIBUS7IDOqeTKFT8DJKnVrbS' },
+  { id: 'schjell', name: 'Schjell', color: '#F59E0B', pinHash: '$2b$10$BMUzZ5IFoEdr6rrnx4.wouVJmht0QdwigD9vn1H9QuWlNY/IPM5j.' },
 ];
 
 export const USERS_LIST = USERS;
@@ -19,9 +21,10 @@ export const USERS_LIST = USERS;
 export async function initSchema() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
-      id    TEXT PRIMARY KEY,
-      name  TEXT NOT NULL,
-      color TEXT NOT NULL
+      id         TEXT PRIMARY KEY,
+      name       TEXT NOT NULL,
+      color      TEXT NOT NULL,
+      pin_hash   TEXT NOT NULL DEFAULT ''
     );
 
     CREATE TABLE IF NOT EXISTS seasons (
@@ -63,14 +66,20 @@ export async function initSchema() {
       season_id TEXT PRIMARY KEY REFERENCES seasons(id),
       amount    NUMERIC(10,2) NOT NULL DEFAULT 0
     );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      token      TEXT PRIMARY KEY,
+      user_id    TEXT NOT NULL REFERENCES users(id),
+      expires_at TIMESTAMPTZ NOT NULL
+    );
   `);
 
-  // Seed fixed users
+  // Seed fixed users (upsert PIN hash so it updates if changed)
   for (const u of USERS) {
     await pool.query(
-      `INSERT INTO users (id, name, color) VALUES ($1, $2, $3)
-       ON CONFLICT (id) DO UPDATE SET name = $2, color = $3`,
-      [u.id, u.name, u.color]
+      `INSERT INTO users (id, name, color, pin_hash) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (id) DO UPDATE SET name = $2, color = $3, pin_hash = $4`,
+      [u.id, u.name, u.color, u.pinHash]
     );
   }
 }
@@ -328,4 +337,34 @@ export async function getWeekResult(weekKey, seasonId) {
     [weekKey, seasonId]
   );
   return res.rows[0] ?? null;
+}
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+
+export async function login(userId, pin) {
+  const res = await pool.query('SELECT pin_hash FROM users WHERE id = $1', [userId]);
+  if (res.rows.length === 0) throw new Error('User not found');
+  const valid = await bcrypt.compare(pin, res.rows[0].pin_hash);
+  if (!valid) throw new Error('Wrong PIN');
+
+  const token = randomBytes(32).toString('hex');
+  const expires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+  await pool.query(
+    'INSERT INTO sessions (token, user_id, expires_at) VALUES ($1, $2, $3)',
+    [token, userId, expires]
+  );
+  return token;
+}
+
+export async function validateSession(token) {
+  if (!token) return null;
+  const res = await pool.query(
+    'SELECT user_id FROM sessions WHERE token = $1 AND expires_at > NOW()',
+    [token]
+  );
+  return res.rows[0]?.user_id ?? null;
+}
+
+export async function logout(token) {
+  await pool.query('DELETE FROM sessions WHERE token = $1', [token]);
 }

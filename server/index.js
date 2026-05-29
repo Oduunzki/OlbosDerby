@@ -102,6 +102,41 @@ app.get('/api/history', async (req, res) => {
 // Health check
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 
+// ── Auth routes ───────────────────────────────────────────────────────────────
+
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { userId, pin } = req.body;
+    if (!userId || !pin) return res.status(400).json({ error: 'userId and pin required' });
+    const token = await db.login(userId, String(pin));
+    res.json({ token, userId });
+  } catch (err) {
+    res.status(401).json({ error: err.message });
+  }
+});
+
+app.post('/api/auth/logout', async (req, res) => {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  if (token) await db.logout(token);
+  res.json({ ok: true });
+});
+
+app.get('/api/auth/me', async (req, res) => {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  const userId = await db.validateSession(token);
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+  res.json({ userId });
+});
+
+// Middleware: require valid session for betting routes
+async function requireAuth(req, res, next) {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  const userId = await db.validateSession(token);
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+  req.userId = userId;
+  next();
+}
+
 // ── Betting API ───────────────────────────────────────────────────────────────
 
 // Determine winning horses from current prices + stock data
@@ -143,7 +178,7 @@ async function maybeResolveLastWeek(seasonId, stocks, shorts) {
   }
 }
 
-app.get('/api/betting/state', async (req, res) => {
+app.get('/api/betting/state', requireAuth, async (req, res) => {
   try {
     const state = await db.getState();
     res.json(state);
@@ -153,7 +188,7 @@ app.get('/api/betting/state', async (req, res) => {
   }
 });
 
-app.post('/api/betting/bet', async (req, res) => {
+app.post('/api/betting/bet', requireAuth, async (req, res) => {
   try {
     const { userId, horse, amount } = req.body;
     if (!userId || !horse || !amount || amount <= 0) {
@@ -170,7 +205,7 @@ app.post('/api/betting/bet', async (req, res) => {
   }
 });
 
-app.delete('/api/betting/bet/:id', async (req, res) => {
+app.delete('/api/betting/bet/:id', requireAuth, async (req, res) => {
   try {
     await db.removeBet(req.params.id);
     res.json({ ok: true });
@@ -180,7 +215,7 @@ app.delete('/api/betting/bet/:id', async (req, res) => {
 });
 
 // Manual resolve (admin override — picks winners explicitly or auto-detects)
-app.post('/api/betting/admin/resolve', async (req, res) => {
+app.post('/api/betting/admin/resolve', requireAuth, async (req, res) => {
   try {
     const { weekKey, winningHorses } = req.body;
     const state = await db.getState();

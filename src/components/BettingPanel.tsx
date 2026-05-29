@@ -27,6 +27,8 @@ interface BettingState {
 interface Props {
   shortPositions: ShortStock[];
   darkHorse: DarkHorseConfig;
+  currentUserId: string;
+  authToken: string;
 }
 
 const DARK_ID = 'DARK';
@@ -46,11 +48,8 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('nb-NO', { day: 'numeric', month: 'short' });
 }
 
-export function BettingPanel({ shortPositions, darkHorse }: Props) {
+export function BettingPanel({ shortPositions, darkHorse, currentUserId, authToken }: Props) {
   const [state, setState] = useState<BettingState | null>(null);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(
-    () => localStorage.getItem('betting-user-id')
-  );
   const [selectedHorse, setSelectedHorse] = useState<string | null>(null);
   const [amount, setAmount] = useState(50);
   const [loading, setLoading] = useState(false);
@@ -58,20 +57,17 @@ export function BettingPanel({ shortPositions, darkHorse }: Props) {
   const [flashMsg, setFlashMsg] = useState('');
   const [showHistory, setShowHistory] = useState(false);
 
+  const authHeaders = { Authorization: `Bearer ${authToken}` };
+
   const fetchState = useCallback(async () => {
     try {
-      const res = await fetch('/api/betting/state');
+      const res = await fetch('/api/betting/state', { headers: authHeaders });
       if (!res.ok) return;
       setState(await res.json());
     } catch { /* server not available */ }
-  }, []);
+  }, [authToken]);
 
   useEffect(() => { fetchState(); }, [fetchState]);
-
-  const selectUser = (id: string) => {
-    setCurrentUserId(id);
-    localStorage.setItem('betting-user-id', id);
-  };
 
   const myBalance = state && currentUserId ? (state.balances[currentUserId] ?? 0) : null;
   const weekClosed = state ? isWeekClosed(state.weekKey) : false;
@@ -82,7 +78,7 @@ export function BettingPanel({ shortPositions, darkHorse }: Props) {
     try {
       const res = await fetch('/api/betting/bet', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({ userId: currentUserId, horse: selectedHorse, amount }),
       });
       const data = await res.json();
@@ -102,7 +98,7 @@ export function BettingPanel({ shortPositions, darkHorse }: Props) {
 
   const handleRemoveBet = async (betId: string) => {
     try {
-      const res = await fetch(`/api/betting/bet/${betId}`, { method: 'DELETE' });
+      const res = await fetch(`/api/betting/bet/${betId}`, { method: 'DELETE', headers: authHeaders });
       if (res.ok) fetchState();
     } catch { /* ignore */ }
   };
@@ -153,39 +149,7 @@ export function BettingPanel({ shortPositions, darkHorse }: Props) {
         </div>
       </div>
 
-      {/* User login */}
-      <div style={{ marginBottom: '20px' }}>
-        <p style={labelStyle}>Who are you?</p>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-          {state.users.map(u => {
-            const active = currentUserId === u.id;
-            const bal = state.balances[u.id] ?? 0;
-            return (
-              <button
-                key={u.id}
-                onClick={() => selectUser(u.id)}
-                style={{
-                  padding: '8px 16px', borderRadius: '22px', cursor: 'pointer',
-                  border: `1.5px solid ${active ? u.color : u.color + '44'}`,
-                  background: active ? u.color + '22' : '#0a1410',
-                  color: u.color,
-                  fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: '13px',
-                  boxShadow: active ? `0 0 12px ${u.color}33` : 'none',
-                  transition: 'all 0.15s',
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px',
-                }}
-              >
-                <span>{u.name}</span>
-                <span style={{ fontSize: '10px', fontWeight: 400, opacity: 0.7, fontFamily: 'Fira Code, monospace' }}>
-                  {bal.toFixed(0)} kr
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {currentUserId && !weekClosed && (
+      {!weekClosed && (
         <>
           {/* Horse selection */}
           <div style={{ marginBottom: '16px' }}>

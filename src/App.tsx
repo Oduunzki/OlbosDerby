@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import stocksData from './data/stocks.json';
 import shortsData from './data/shorts.json';
 import type { Stock, ShortStock, DarkHorseConfig } from './types';
@@ -8,6 +8,7 @@ import { Scoreboard } from './components/Scoreboard';
 import { ShortTrack } from './components/ShortTrack';
 import { BettingWindow } from './components/BettingWindow';
 import { BettingPanel } from './components/BettingPanel';
+import { LoginScreen } from './components/LoginScreen';
 
 const stocks: Stock[] = stocksData as Stock[];
 const shortPositions: ShortStock[] = (shortsData as { darkHorse: DarkHorseConfig; positions: ShortStock[] }).positions;
@@ -19,6 +20,37 @@ function formatTime(date: Date): string {
 
 export default function App() {
   const [bettingOpen, setBettingOpen] = useState(false);
+  const [authToken, setAuthToken] = useState<string | null>(() => localStorage.getItem('auth-token'));
+  const [authUserId, setAuthUserId] = useState<string | null>(() => localStorage.getItem('auth-user-id'));
+
+  // Validate stored session on load
+  useEffect(() => {
+    if (!authToken) return;
+    fetch('/api/auth/me', { headers: { Authorization: `Bearer ${authToken}` } })
+      .then(r => { if (!r.ok) handleLogout(); })
+      .catch(() => {});
+  }, []);
+
+  const handleLogin = (userId: string, token: string) => {
+    localStorage.setItem('auth-token', token);
+    localStorage.setItem('auth-user-id', userId);
+    setAuthToken(token);
+    setAuthUserId(userId);
+  };
+
+  const handleLogout = () => {
+    if (authToken) {
+      fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${authToken}` } }).catch(() => {});
+    }
+    localStorage.removeItem('auth-token');
+    localStorage.removeItem('auth-user-id');
+    setAuthToken(null);
+    setAuthUserId(null);
+  };
+
+  if (!authToken || !authUserId) {
+    return <LoginScreen onLogin={handleLogin} />;
+  }
 
   const allTickers = [
     ...stocks.map(s => s.ticker),
@@ -102,6 +134,21 @@ export default function App() {
                 borderRadius: '6px', border: '1px solid #3a1818',
               }}>{error}</span>
             )}
+
+            <button
+              onClick={handleLogout}
+              title="Log out"
+              style={{
+                background: 'none', border: '1px solid #1a3020', borderRadius: '8px',
+                padding: '4px 10px', cursor: 'pointer', color: '#3a5040',
+                fontSize: '11px', fontFamily: 'Inter, sans-serif', letterSpacing: '0.05em',
+                transition: 'color 0.15s, border-color 0.15s',
+              }}
+              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = '#72c48a'; (e.currentTarget as HTMLButtonElement).style.borderColor = '#2a4a30'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = '#3a5040'; (e.currentTarget as HTMLButtonElement).style.borderColor = '#1a3020'; }}
+            >
+              Log out
+            </button>
           </div>
         </div>
       </header>
@@ -136,7 +183,7 @@ export default function App() {
           <h2 style={{ fontFamily: "'Playfair Display', serif", color: '#c8a040', fontSize: '18px', margin: '0 0 20px' }}>
             Betting
           </h2>
-          <BettingPanel shortPositions={shortPositions} darkHorse={darkHorse} />
+          <BettingPanel shortPositions={shortPositions} darkHorse={darkHorse} currentUserId={authUserId} authToken={authToken} />
         </section>
 
         <div style={{ height: '80px' }} />
