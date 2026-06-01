@@ -30,7 +30,7 @@ function useNow() {
 
 export default function App() {
   const [bettingOpen, setBettingOpen] = useState(false);
-  const [hideObs, setHideObs] = useState(false);
+  const [hideObs, setHideObs] = useState(true);
   const { show: showCountdown, dismiss: dismissCountdown } = useMarketOpenCountdown();
   const [authToken, setAuthToken] = useState<string | null>(() => localStorage.getItem('auth-token'));
   const [authUserId, setAuthUserId] = useState<string | null>(() => localStorage.getItem('auth-user-id'));
@@ -252,7 +252,7 @@ export default function App() {
           <h2 style={{ fontFamily: "'Playfair Display', serif", color: '#c8a040', fontSize: '18px', margin: '0 0 20px' }}>
             Betting
           </h2>
-          <BettingPanel shortPositions={stocksAsShorts.length > 0 ? stocksAsShorts : shortPositions} darkHorse={darkHorse} currentUserId={authUserId} authToken={authToken} />
+          <BettingPanel shortPositions={stocksAsShorts.length > 0 ? stocksAsShorts : shortPositions} darkHorse={darkHorse} currentUserId={authUserId} authToken={authToken} hideObs={hideObs} />
         </section>
 
         {/* Horse Details */}

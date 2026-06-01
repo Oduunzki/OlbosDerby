@@ -29,6 +29,7 @@ interface Props {
   darkHorse: DarkHorseConfig;
   currentUserId: string;
   authToken: string;
+  hideObs?: boolean;
 }
 
 const DARK_ID = 'DARK';
@@ -59,7 +60,7 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('nb-NO', { day: 'numeric', month: 'short' });
 }
 
-export function BettingPanel({ shortPositions, darkHorse, currentUserId, authToken }: Props) {
+export function BettingPanel({ shortPositions, darkHorse, currentUserId, authToken, hideObs = false }: Props) {
   const [state, setState] = useState<BettingState | null>(null);
   const [selectedHorse, setSelectedHorse] = useState<string | null>(null);
   const [amount, setAmount] = useState(50);
@@ -205,15 +206,27 @@ export function BettingPanel({ shortPositions, darkHorse, currentUserId, authTok
           <div style={{ marginBottom: '16px' }}>
             <p style={labelStyle}>Pick a horse</p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-              {shortPositions.map(p => {
-                const sel = selectedHorse === p.ticker;
-                return (
-                  <button key={p.id} onClick={() => setSelectedHorse(sel ? null : p.ticker)}
-                    style={horseBtn(p.color, sel)}>
-                    {p.ticker}
-                  </button>
-                );
-              })}
+              {shortPositions
+                .filter(p => !hideObs || p.inPlay !== false)
+                .map(p => {
+                  const sel = selectedHorse === p.ticker;
+                  const isObs = p.inPlay === false;
+                  return (
+                    <button key={p.id} onClick={() => setSelectedHorse(sel ? null : p.ticker)}
+                      style={{ ...horseBtn(p.color, sel), position: 'relative' }}>
+                      {isObs && (
+                        <span style={{
+                          position: 'absolute', top: '-6px', right: '-4px',
+                          fontSize: '8px', fontFamily: 'Fira Code, monospace',
+                          padding: '1px 5px', borderRadius: '6px',
+                          background: '#1a1030', color: '#a78bfa',
+                          border: '1px solid #6d28d933', lineHeight: 1.4,
+                        }}>OBS</span>
+                      )}
+                      {p.ticker}
+                    </button>
+                  );
+                })}
               {(() => {
                 const sel = selectedHorse === DARK_ID;
                 return (
