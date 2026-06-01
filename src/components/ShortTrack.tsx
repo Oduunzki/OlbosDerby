@@ -18,6 +18,8 @@ interface Props {
   prices: Record<string, number | null>;
   tickChanges: Record<string, number | null>;
   darkHorse: DarkHorseConfig;
+  hideObs: boolean;
+  onToggleHideObs: () => void;
 }
 
 function getDarkHorseProgress(config: DarkHorseConfig): number {
@@ -82,13 +84,12 @@ function StatCard({ label, value, color, sub }: StatCardProps) {
   );
 }
 
-export function ShortTrack({ positions, prices, tickChanges, darkHorse }: Props) {
+export function ShortTrack({ positions, prices, tickChanges, darkHorse, hideObs, onToggleHideObs }: Props) {
 
   const [showReplay, setShowReplay] = useState(false);
   const [replayWeekKey, setReplayWeekKey] = useState<string | null>(null);
   const [tickCounters, setTickCounters] = useState<Record<string, number>>({});
   const [absorbCounters, setAbsorbCounters] = useState<Record<string, number>>({});
-  const [includeObs, setIncludeObs] = useState(false);
   const prevTicksRef = useRef<Record<string, number | null>>({});
 
   const hasObsHorses = positions.some(s => s.inPlay === false);
@@ -111,7 +112,7 @@ export function ShortTrack({ positions, prices, tickChanges, darkHorse }: Props)
 
   const dhProgress = getDarkHorseProgress(darkHorse);
 
-  const statPositions = includeObs ? positions : positions.filter(s => s.inPlay !== false);
+  const statPositions = hideObs ? positions.filter(s => s.inPlay !== false) : positions;
 
   const effectivePrice = (s: typeof positions[number]) => s.soldPrice ?? prices[s.yahooSymbol] ?? null;
 
@@ -204,21 +205,40 @@ export function ShortTrack({ positions, prices, tickChanges, darkHorse }: Props)
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
           {hasObsHorses && (
-            <button
-              onClick={() => setIncludeObs(v => !v)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: '6px',
-                padding: '8px 14px', borderRadius: '10px', cursor: 'pointer',
-                background: includeObs ? '#1a1030' : '#09120a',
-                border: `1px solid ${includeObs ? '#6d28d9' : '#1e3525'}`,
-                color: includeObs ? '#a78bfa' : '#4a6050',
-                fontFamily: 'Fira Code, monospace',
-                fontSize: '11px', letterSpacing: '0.06em',
-                transition: 'all 0.2s',
-              }}
-            >
-              👁 {includeObs ? 'Alle hester' : 'Skarpe hester'}
-            </button>
+            <label style={{
+              display: 'flex', alignItems: 'center', gap: '8px',
+              cursor: 'pointer', userSelect: 'none',
+            }}>
+              <div
+                onClick={onToggleHideObs}
+                style={{
+                  width: '36px', height: '20px', borderRadius: '10px',
+                  background: hideObs ? '#6d28d9' : '#1e3525',
+                  border: `1px solid ${hideObs ? '#7c3aed' : '#2a4a30'}`,
+                  position: 'relative', transition: 'background 0.2s, border-color 0.2s',
+                  flexShrink: 0,
+                }}
+              >
+                <div style={{
+                  position: 'absolute', top: '2px',
+                  left: hideObs ? '18px' : '2px',
+                  width: '14px', height: '14px', borderRadius: '50%',
+                  background: hideObs ? '#c4b5fd' : '#4a6050',
+                  transition: 'left 0.2s, background 0.2s',
+                }} />
+              </div>
+              <span
+                onClick={onToggleHideObs}
+                style={{
+                  fontFamily: 'Fira Code, monospace', fontSize: '11px',
+                  letterSpacing: '0.06em',
+                  color: hideObs ? '#a78bfa' : '#4a6050',
+                  transition: 'color 0.2s',
+                }}
+              >
+                Skjul overvåkingsaksjer
+              </span>
+            </label>
           )}
 
           <button
@@ -542,13 +562,13 @@ export function ShortTrack({ positions, prices, tickChanges, darkHorse }: Props)
         <div style={{ marginBottom: '28px' }}>
         {hasObsHorses && (
           <p style={{
-            fontSize: '10px', color: includeObs ? '#a78bfa' : '#4a6050',
+            fontSize: '10px', color: hideObs ? '#a78bfa' : '#4a6050',
             fontFamily: 'Fira Code, monospace', letterSpacing: '0.06em',
             marginBottom: '8px',
           }}>
-            {includeObs
-              ? `📊 alle ${positions.length} hester · inkl. observasjon`
-              : `📊 ${statPositions.length} skarpe hester · ${positions.length - statPositions.length} obs holdt utenfor`}
+            {hideObs
+              ? `📊 ${statPositions.length} skarpe hester · ${positions.length - statPositions.length} obs holdt utenfor`
+              : `📊 alle ${positions.length} hester · inkl. observasjon`}
           </p>
         )}
         <div style={{

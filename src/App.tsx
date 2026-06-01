@@ -30,7 +30,7 @@ function useNow() {
 
 export default function App() {
   const [bettingOpen, setBettingOpen] = useState(false);
-  const [showObsHorses, setShowObsHorses] = useState(true);
+  const [hideObs, setHideObs] = useState(false);
   const { show: showCountdown, dismiss: dismissCountdown } = useMarketOpenCountdown();
   const [authToken, setAuthToken] = useState<string | null>(() => localStorage.getItem('auth-token'));
   const [authUserId, setAuthUserId] = useState<string | null>(() => localStorage.getItem('auth-user-id'));
@@ -223,6 +223,8 @@ export default function App() {
                 prices={prices}
                 tickChanges={tickChanges}
                 darkHorse={darkHorse}
+                hideObs={hideObs}
+                onToggleHideObs={() => setHideObs(v => !v)}
               />
             </section>
           )}
@@ -234,6 +236,8 @@ export default function App() {
                 prices={prices}
                 tickChanges={tickChanges}
                 darkHorse={darkHorse}
+                hideObs={hideObs}
+                onToggleHideObs={() => setHideObs(v => !v)}
               />
             </section>
           )}
@@ -254,29 +258,12 @@ export default function App() {
         {/* Horse Details */}
         {(stocksAsShorts.length > 0 || shortPositions.length > 0) && (
           <section style={{ marginTop: '48px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
-              <h2 style={{ fontFamily: "'Playfair Display', serif", color: '#c8a040', fontSize: '18px', margin: 0 }}>
-                Horse Details
-              </h2>
-              {(stocksAsShorts.length > 0 ? stocksAsShorts : shortPositions).some(s => s.inPlay === false) && (
-                <button
-                  onClick={() => setShowObsHorses(v => !v)}
-                  style={{
-                    padding: '6px 14px', borderRadius: '10px', cursor: 'pointer',
-                    fontFamily: 'Fira Code, monospace', fontSize: '11px', letterSpacing: '0.06em',
-                    background: showObsHorses ? '#1e1a30' : '#09120a',
-                    color: showObsHorses ? '#a78bfa' : '#4a6050',
-                    border: `1px solid ${showObsHorses ? '#6d28d9' : '#1e3525'}`,
-                    transition: 'all 0.2s',
-                  }}
-                >
-                  👁 {showObsHorses ? 'Skjul obs' : 'Vis obs'}
-                </button>
-              )}
-            </div>
+            <h2 style={{ fontFamily: "'Playfair Display', serif", color: '#c8a040', fontSize: '18px', margin: '0 0 20px' }}>
+              Horse Details
+            </h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {[...(stocksAsShorts.length > 0 ? stocksAsShorts : shortPositions)]
-                .filter(s => showObsHorses || s.inPlay !== false)
+                .filter(s => !hideObs || s.inPlay !== false)
                 .sort((a, b) => {
                   const ep = (s: typeof stocksAsShorts[number]) => s.soldPrice ?? prices[s.yahooSymbol] ?? null;
                   const pa = ep(a); const ga = pa != null ? (pa - a.buyPrice) / a.buyPrice : -Infinity;
