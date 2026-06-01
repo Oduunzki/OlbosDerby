@@ -152,11 +152,13 @@ export function ShortTrack({ positions, prices, tickChanges, darkHorse, hideObs,
   const usdNok     = prices['USDNOK=X'] ?? null;
   const totalPnlNok = totalPnl != null && usdNok != null ? totalPnl * usdNok : null;
 
-  const ranked = [...positions].sort((a, b) => {
-    const pa = effectivePrice(a); const ga = pa != null ? (pa - a.buyPrice) / a.buyPrice : -Infinity;
-    const pb = effectivePrice(b); const gb = pb != null ? (pb - b.buyPrice) / b.buyPrice : -Infinity;
-    return gb - ga;
-  });
+  const ranked = [...positions]
+    .filter(s => !hideObs || s.inPlay !== false)
+    .sort((a, b) => {
+      const pa = effectivePrice(a); const ga = pa != null ? (pa - a.buyPrice) / a.buyPrice : -Infinity;
+      const pb = effectivePrice(b); const gb = pb != null ? (pb - b.buyPrice) / b.buyPrice : -Infinity;
+      return gb - ga;
+    });
 
   // Track scale — finish line is the weekly target (+7%), with room for overachievers
   const weeklyTarget = darkHorse.pctPerWeek / 100;
