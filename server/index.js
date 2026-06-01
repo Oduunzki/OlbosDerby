@@ -3,10 +3,21 @@ import cors from 'cors';
 import fetch from 'node-fetch';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { readFileSync } from 'fs';
 import YahooFinance from 'yahoo-finance2';
 import * as db from './db.js';
 
 const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
+
+function loadCurrentPositions() {
+  try {
+    const stocks = JSON.parse(readFileSync(join(__dirname, '../src/data/stocks.json'), 'utf8'));
+    const shortsFile = JSON.parse(readFileSync(join(__dirname, '../src/data/shorts.json'), 'utf8'));
+    return { stocks: Array.isArray(stocks) ? stocks : [], shorts: shortsFile.positions ?? [] };
+  } catch {
+    return { stocks: [], shorts: [] };
+  }
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -211,26 +222,46 @@ async function detectWinners(prices, stocks, shorts) {
   return winners;
 }
 
-// Lazy resolution: called when state is fetched and the last week may be unresolved
-async function maybeResolveLastWeek(seasonId, stocks, shorts) {
-  const weekKey = db.getCurrentWeekKey();
-  if (!db.isWeekClosed(weekKey)) return;
-
-  const existing = await db.getWeekResult(weekKey, seasonId);
-  if (existing?.resolved_at) return;
+// Lazy resolution: called when state is fetched and the previous week may be unresolved
+async function maybeResolveLastWeek() {
+  const prevWeekKey = db.getPreviousWeekKey();
+  if (!db.isWeekClosed(prevWeekKey)) return;
 
   try {
+    const state = await db.getState();
+    const existing = await db.getWeekResult(prevWeekKey, state.seasonId);
+    if (existing?.resolved_at) return;
+
+    // Get saved positions for that week (saved when server started with that week's data)
+    const saved = await db.getWeekPositions(prevWeekKey, state.seasonId);
+    const stocks = saved?.stocks ?? [];
+    const shorts = saved?.shorts ?? [];
+
+    // Get prices at or near Friday close of that week
     const allTickers = [
       ...stocks.map(s => s.ticker),
-      ...shorts.map(s => s.yahooSymbol),
-    ].join(',');
-    const priceRes = await fetch(
-      `http://localhost:${PORT}/api/prices?tickers=${encodeURIComponent(allTickers)}`
-    );
-    const prices = await priceRes.json();
+      ...shorts.map(s => s.yahooSymbol ?? s.ticker),
+    ];
+    if (allTickers.length === 0) return;
+
+    // weekFridayClose for previous week
+    const [yearStr, wStr] = prevWeekKey.split('-W');
+    const year = parseInt(yearStr);
+    const week = parseInt(wStr);
+    const jan4 = new Date(Date.UTC(year, 0, 4));
+    const dayOfWeek = jan4.getUTCDay() || 7;
+    const week1Monday = new Date(jan4);
+    week1Monday.setUTCDate(jan4.getUTCDate() - dayOfWeek + 1);
+    const targetMonday = new Date(week1Monday);
+    targetMonday.setUTCDate(week1Monday.getUTCDate() + (week - 1) * 7);
+    const friday = new Date(targetMonday);
+    friday.setUTCDate(targetMonday.getUTCDate() + 4);
+    friday.setUTCHours(22, 0, 0, 0);
+
+    const prices = await db.getHistoricalPrices(allTickers, friday);
     const winners = await detectWinners(prices, stocks, shorts);
-    await db.resolveWeek(weekKey, seasonId, winners);
-    console.log(`[betting] resolved ${weekKey}: winners=${JSON.stringify(winners)}`);
+    await db.resolveWeek(prevWeekKey, state.seasonId, winners);
+    console.log(`[betting] auto-resolved ${prevWeekKey}: winners=${JSON.stringify(winners)}`);
   } catch (err) {
     console.error('[betting] auto-resolve failed:', err.message);
   }
@@ -238,6 +269,7 @@ async function maybeResolveLastWeek(seasonId, stocks, shorts) {
 
 app.get('/api/betting/state', requireAuth, async (req, res) => {
   try {
+    await maybeResolveLastWeek();
     const state = await db.getState();
     res.json(state);
   } catch (err) {
@@ -285,6 +317,16 @@ app.post('/api/betting/admin/resolve', requireAuth, async (req, res) => {
   }
 });
 
+app.get('/api/betting/bets/:weekKey', requireAuth, async (req, res) => {
+  try {
+    const state = await db.getState();
+    const bets = await db.getBetsForWeek(req.params.weekKey, state.seasonId);
+    res.json(bets);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Serve Vite build in production
 const distPath = join(__dirname, '../dist');
 app.use(express.static(distPath));
@@ -296,7 +338,10 @@ const PORT = Number(process.env.PORT) || 4000;
 
 db.initSchema()
   .then(() => db.ensureCurrentSeason())
-  .then(() => {
+  .then(async (seasonId) => {
+    const weekKey = db.getCurrentWeekKey();
+    const { stocks, shorts } = loadCurrentPositions();
+    await db.saveWeekPositions(weekKey, seasonId, stocks, shorts);
     app.listen(PORT, () => {
       console.log(`HeiaStock Derby running on http://localhost:${PORT}`);
     });

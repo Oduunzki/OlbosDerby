@@ -235,7 +235,7 @@ export default function App() {
           <h2 style={{ fontFamily: "'Playfair Display', serif", color: '#c8a040', fontSize: '18px', margin: '0 0 20px' }}>
             Betting
           </h2>
-          <BettingPanel shortPositions={shortPositions} darkHorse={darkHorse} currentUserId={authUserId} authToken={authToken} />
+          <BettingPanel shortPositions={stocksAsShorts.length > 0 ? stocksAsShorts : shortPositions} darkHorse={darkHorse} currentUserId={authUserId} authToken={authToken} />
         </section>
 
         {/* Horse Details */}

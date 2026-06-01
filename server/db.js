@@ -79,6 +79,15 @@ export async function initSchema() {
       price       NUMERIC(12,4) NOT NULL,
       captured_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    CREATE TABLE IF NOT EXISTS week_positions (
+      week_key  TEXT NOT NULL,
+      season_id TEXT NOT NULL,
+      stocks    JSONB NOT NULL DEFAULT '[]',
+      shorts    JSONB NOT NULL DEFAULT '[]',
+      saved_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (week_key, season_id)
+    );
   `);
 
   await pool.query(`
@@ -152,6 +161,17 @@ export async function ensureCurrentSeason() {
 export function getCurrentWeekKey() {
   const now = new Date();
   const d = new Date(now);
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const week = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+}
+
+export function getPreviousWeekKey() {
+  const now = new Date();
+  const prev = new Date(now);
+  prev.setUTCDate(prev.getUTCDate() - 7);
+  const d = new Date(prev);
   d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
   const week = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
@@ -397,6 +417,46 @@ export async function getPriceHistory(tickers, from) {
     if (!out[row.ticker]) out[row.ticker] = [];
     out[row.ticker].push({ date: row.captured_at, close: parseFloat(row.price) });
   }
+  return out;
+}
+
+export async function saveWeekPositions(weekKey, seasonId, stocks, shorts) {
+  await pool.query(
+    `INSERT INTO week_positions (week_key, season_id, stocks, shorts)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (week_key, season_id) DO UPDATE SET stocks = $3, shorts = $4, saved_at = NOW()`,
+    [weekKey, seasonId, JSON.stringify(stocks), JSON.stringify(shorts)]
+  );
+}
+
+export async function getWeekPositions(weekKey, seasonId) {
+  const res = await pool.query(
+    'SELECT stocks, shorts FROM week_positions WHERE week_key = $1 AND season_id = $2',
+    [weekKey, seasonId]
+  );
+  if (res.rows.length === 0) return null;
+  return { stocks: res.rows[0].stocks, shorts: res.rows[0].shorts };
+}
+
+export async function getBetsForWeek(weekKey, seasonId) {
+  const res = await pool.query(
+    'SELECT id, user_id, horse, amount FROM bets WHERE week_key = $1 AND season_id = $2 ORDER BY placed_at',
+    [weekKey, seasonId]
+  );
+  return res.rows.map(b => ({ ...b, amount: parseFloat(b.amount) }));
+}
+
+export async function getHistoricalPrices(tickers, beforeDate) {
+  if (tickers.length === 0) return {};
+  const res = await pool.query(
+    `SELECT DISTINCT ON (ticker) ticker, price
+     FROM price_history
+     WHERE ticker = ANY($1) AND captured_at <= $2
+     ORDER BY ticker, captured_at DESC`,
+    [tickers, beforeDate]
+  );
+  const out = {};
+  for (const row of res.rows) out[row.ticker] = parseFloat(row.price);
   return out;
 }
 

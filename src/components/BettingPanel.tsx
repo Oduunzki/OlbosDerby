@@ -33,6 +33,17 @@ interface Props {
 
 const DARK_ID = 'DARK';
 
+function getPrevWeekKey(): string {
+  const now = new Date();
+  const prev = new Date(now);
+  prev.setUTCDate(prev.getUTCDate() - 7);
+  const d = new Date(prev);
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const week = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+}
+
 function horseName(ticker: string, shorts: ShortStock[], dh: DarkHorseConfig) {
   if (ticker === DARK_ID) return `☠️ ${dh.label}`;
   const s = shorts.find(p => p.ticker === ticker);
@@ -56,6 +67,11 @@ export function BettingPanel({ shortPositions, darkHorse, currentUserId, authTok
   const [flash, setFlash] = useState<'ok' | 'err' | null>(null);
   const [flashMsg, setFlashMsg] = useState('');
   const [showHistory, setShowHistory] = useState(false);
+  const [resolveWeekKey, setResolveWeekKey] = useState('');
+  const [resolveHorses, setResolveHorses] = useState<string[]>([]);
+  const [prevBets, setPrevBets] = useState<{horse: string}[]>([]);
+  const [showResolve, setShowResolve] = useState(false);
+  const [resolveFlash, setResolveFlash] = useState<string | null>(null);
 
   const authHeaders = { Authorization: `Bearer ${authToken}` };
 
@@ -68,6 +84,40 @@ export function BettingPanel({ shortPositions, darkHorse, currentUserId, authTok
   }, [authToken]);
 
   useEffect(() => { fetchState(); }, [fetchState]);
+
+  const fetchPrevBets = useCallback(async (wk: string) => {
+    try {
+      const res = await fetch(`/api/betting/bets/${wk}`, { headers: authHeaders });
+      if (!res.ok) return;
+      setPrevBets(await res.json());
+    } catch { /* ignore */ }
+  }, [authToken]);
+
+  const openResolve = () => {
+    const wk = getPrevWeekKey();
+    setResolveWeekKey(wk);
+    setResolveHorses([]);
+    setShowResolve(true);
+    fetchPrevBets(wk);
+  };
+
+  const submitResolve = async () => {
+    try {
+      const res = await fetch('/api/betting/admin/resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ weekKey: resolveWeekKey, winningHorses: resolveHorses }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      setResolveFlash('✓ Resolved');
+      setShowResolve(false);
+      fetchState();
+      setTimeout(() => setResolveFlash(null), 3000);
+    } catch {
+      setResolveFlash('✗ Error');
+      setTimeout(() => setResolveFlash(null), 3000);
+    }
+  };
 
   const myBalance = state && currentUserId ? (state.balances[currentUserId] ?? 0) : null;
   const weekClosed = state ? isWeekClosed(state.weekKey) : false;
@@ -327,6 +377,55 @@ export function BettingPanel({ shortPositions, darkHorse, currentUserId, authTok
                   )}
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Admin resolve */}
+      {currentUserId === 'dunzter' && (
+        <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid #1a2e1c' }}>
+          {resolveFlash && (
+            <p style={{ fontFamily: 'Fira Code, monospace', fontSize: '12px', color: resolveFlash.startsWith('✓') ? '#72c48a' : '#c47878', marginBottom: '8px' }}>
+              {resolveFlash}
+            </p>
+          )}
+          {!showResolve ? (
+            <button
+              onClick={openResolve}
+              style={{ background: 'none', border: '1px solid #2a4030', borderRadius: '8px', padding: '6px 14px', cursor: 'pointer', color: '#4a6050', fontSize: '11px', fontFamily: 'Fira Code, monospace', letterSpacing: '0.06em' }}
+            >
+              ⚙ Løs forrige uke
+            </button>
+          ) : (
+            <div style={{ background: '#09120a', border: '1px solid #1e3525', borderRadius: '10px', padding: '14px' }}>
+              <p style={{ ...labelStyle, marginBottom: '10px' }}>Løs {resolveWeekKey}</p>
+              {/* Horse checkboxes from previous week bets */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '12px' }}>
+                {Array.from(new Set(prevBets.map(b => b.horse))).map(horse => {
+                  const sel = resolveHorses.includes(horse);
+                  return (
+                    <button key={horse}
+                      onClick={() => setResolveHorses(sel ? resolveHorses.filter(h => h !== horse) : [...resolveHorses, horse])}
+                      style={{ padding: '5px 12px', borderRadius: '16px', cursor: 'pointer', border: `1px solid ${sel ? '#72c48a' : '#2a4030'}`, background: sel ? '#0e2418' : '#09120a', color: sel ? '#72c48a' : '#4a6050', fontFamily: 'Fira Code, monospace', fontSize: '12px' }}>
+                      {horse}
+                    </button>
+                  );
+                })}
+                {prevBets.length === 0 && (
+                  <span style={{ fontSize: '11px', color: '#3a5040', fontStyle: 'italic' }}>Ingen bets funnet for {resolveWeekKey}</span>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button onClick={submitResolve}
+                  style={{ padding: '7px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer', background: '#1e4a28', color: '#72c48a', fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: '12px' }}>
+                  Bekreft {resolveHorses.length > 0 ? `(${resolveHorses.join(', ')})` : '(ingen vinnere)'}
+                </button>
+                <button onClick={() => setShowResolve(false)}
+                  style={{ padding: '7px 12px', borderRadius: '8px', border: '1px solid #2a4030', cursor: 'pointer', background: 'none', color: '#4a6050', fontFamily: 'Inter, sans-serif', fontSize: '12px' }}>
+                  Avbryt
+                </button>
+              </div>
             </div>
           )}
         </div>
