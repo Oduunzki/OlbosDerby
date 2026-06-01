@@ -88,6 +88,17 @@ export async function initSchema() {
       saved_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       PRIMARY KEY (week_key, season_id)
     );
+
+    CREATE TABLE IF NOT EXISTS positions (
+      id         TEXT PRIMARY KEY,
+      ticker     TEXT NOT NULL,
+      buy_price  NUMERIC(12,4) NOT NULL,
+      shares     NUMERIC(12,4),
+      deadline   TEXT NOT NULL,
+      color      TEXT NOT NULL,
+      in_play    BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
   `);
 
   await pool.query(`
@@ -502,6 +513,7 @@ let dbAvailable = true;
 const memSessions = new Map(); // token → { userId, expires }
 
 export function setDbAvailable(v) { dbAvailable = v; }
+export function isDbAvailable() { return dbAvailable; }
 
 export async function login(userId, pin) {
   if (dbAvailable) {
@@ -555,4 +567,48 @@ export async function logout(token) {
   if (dbAvailable) {
     try { await pool.query('DELETE FROM sessions WHERE token = $1', [token]); } catch { /* ignore */ }
   }
+}
+
+// ── Positions (horses) ────────────────────────────────────────────────────────
+
+export async function getPositions() {
+  const res = await pool.query('SELECT * FROM positions ORDER BY created_at ASC');
+  return res.rows.map(r => ({
+    id: r.id,
+    ticker: r.ticker,
+    buyPrice: parseFloat(r.buy_price),
+    ...(r.shares != null ? { shares: parseFloat(r.shares) } : {}),
+    deadline: r.deadline,
+    color: r.color,
+    inPlay: r.in_play,
+  }));
+}
+
+export async function addPosition({ id, ticker, buyPrice, shares, deadline, color, inPlay }) {
+  await pool.query(
+    `INSERT INTO positions (id, ticker, buy_price, shares, deadline, color, in_play)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [id, ticker, buyPrice, shares ?? null, deadline, color, inPlay ?? true]
+  );
+}
+
+export async function removePosition(id) {
+  await pool.query('DELETE FROM positions WHERE id = $1', [id]);
+}
+
+export async function seedPositionsFromJson(stocks) {
+  const res = await pool.query('SELECT COUNT(*) FROM positions');
+  if (parseInt(res.rows[0].count) > 0) return;
+  for (const s of stocks) {
+    await addPosition({
+      id: s.id,
+      ticker: s.ticker,
+      buyPrice: s.buyPrice,
+      shares: s.shares,
+      deadline: s.deadline,
+      color: s.color,
+      inPlay: s.inPlay ?? true,
+    });
+  }
+  console.log(`[positions] seeded ${stocks.length} positions from stocks.json`);
 }

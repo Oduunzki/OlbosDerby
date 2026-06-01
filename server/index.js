@@ -3,7 +3,7 @@ import cors from 'cors';
 import fetch from 'node-fetch';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { readFileSync } from 'fs';
+import { readFileSync, writeFileSync } from 'fs';
 import YahooFinance from 'yahoo-finance2';
 import * as db from './db.js';
 
@@ -174,6 +174,78 @@ app.get('/api/price-history', async (req, res) => {
 
 // Health check
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
+
+// ── Positions (horses) API ────────────────────────────────────────────────────
+
+const stocksJsonPath = join(__dirname, '../src/data/stocks.json');
+
+function readStocksJson() {
+  try {
+    return JSON.parse(readFileSync(stocksJsonPath, 'utf8'));
+  } catch {
+    return [];
+  }
+}
+
+function writeStocksJson(stocks) {
+  writeFileSync(stocksJsonPath, JSON.stringify(stocks, null, 2));
+}
+
+app.get('/api/positions', requireAuth, async (req, res) => {
+  try {
+    if (db.isDbAvailable()) {
+      return res.json(await db.getPositions());
+    }
+    res.json(readStocksJson());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/positions', requireAuth, async (req, res) => {
+  try {
+    const { id, ticker, buyPrice, shares, deadline, color, inPlay } = req.body;
+    if (!id || !ticker || !buyPrice || !deadline || !color) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    if (db.isDbAvailable()) {
+      await db.addPosition({ id, ticker, buyPrice, shares, deadline, color, inPlay });
+      const positions = await db.getPositions();
+      const state = await db.getState();
+      const { shorts, darkHorse } = loadCurrentPositions();
+      await db.saveWeekPositions(state.weekKey, state.seasonId, positions, shorts, darkHorse);
+    } else {
+      const stocks = readStocksJson();
+      const entry = { id, ticker, buyPrice, ...(shares ? { shares } : {}), deadline, color };
+      if (inPlay === false) entry.inPlay = false;
+      stocks.push(entry);
+      writeStocksJson(stocks);
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete('/api/positions/:id', requireAuth, async (req, res) => {
+  try {
+    if (db.isDbAvailable()) {
+      await db.removePosition(req.params.id);
+      const positions = await db.getPositions();
+      const state = await db.getState();
+      const { shorts, darkHorse } = loadCurrentPositions();
+      await db.saveWeekPositions(state.weekKey, state.seasonId, positions, shorts, darkHorse);
+    } else {
+      const stocks = readStocksJson().filter(s => s.id !== req.params.id);
+      writeStocksJson(stocks);
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
 
 // ── Auth routes ───────────────────────────────────────────────────────────────
 
@@ -409,7 +481,9 @@ db.initSchema()
   .then(async (seasonId) => {
     const weekKey = db.getCurrentWeekKey();
     const { stocks, shorts, darkHorse } = loadCurrentPositions();
-    await db.saveWeekPositions(weekKey, seasonId, stocks, shorts, darkHorse);
+    await db.seedPositionsFromJson(stocks);
+    const dbPositions = await db.getPositions();
+    await db.saveWeekPositions(weekKey, seasonId, dbPositions, shorts, darkHorse);
     app.listen(PORT, () => {
       console.log(`HeiaStock Derby running on http://localhost:${PORT}`);
     });

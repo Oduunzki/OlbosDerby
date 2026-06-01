@@ -3,6 +3,8 @@ import { useState } from 'react';
 interface Props {
   isOpen: boolean;
   onClose: () => void;
+  authToken: string;
+  onHorseAdded: () => void;
 }
 
 const PRESET_COLORS = [
@@ -13,12 +15,11 @@ const PRESET_COLORS = [
 const DEFAULT_COLOR = '#22C55E';
 
 function weekToFriday(weekStr: string): string {
-  // weekStr = "2026-W22"
   const [yearStr, weekPart] = weekStr.split('-W');
   const year = parseInt(yearStr, 10);
   const week = parseInt(weekPart, 10);
   const jan4 = new Date(year, 0, 4);
-  const dayOfWeek = jan4.getDay() || 7; // 1=Mon … 7=Sun
+  const dayOfWeek = jan4.getDay() || 7;
   const week1Monday = new Date(jan4);
   week1Monday.setDate(jan4.getDate() - dayOfWeek + 1);
   const targetMonday = new Date(week1Monday);
@@ -28,13 +29,15 @@ function weekToFriday(weekStr: string): string {
   return friday.toISOString().split('T')[0];
 }
 
-export function BettingWindow({ isOpen, onClose }: Props) {
+export function BettingWindow({ isOpen, onClose, authToken, onHorseAdded }: Props) {
   const [ticker, setTicker] = useState('');
   const [buyPrice, setBuyPrice] = useState('');
   const [shares, setShares] = useState('');
   const [weekStr, setWeekStr] = useState('');
   const [color, setColor] = useState(DEFAULT_COLOR);
-  const [copied, setCopied] = useState(false);
+  const [inPlay, setInPlay] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const hasShares = shares !== '' && parseFloat(shares) > 0;
 
@@ -43,29 +46,35 @@ export function BettingWindow({ isOpen, onClose }: Props) {
     parseFloat(buyPrice) > 0 &&
     weekStr.length > 0;
 
-  const generateId = () =>
-    `${ticker.toLowerCase().replace(/[^a-z0-9]/g, '')}-${Date.now()}`;
-
-  const jsonEntry = isValid
-    ? JSON.stringify(
-        {
-          id: generateId(),
-          ticker: ticker.toUpperCase().trim(),
-          buyPrice: parseFloat(parseFloat(buyPrice).toFixed(2)),
-          ...(hasShares ? { shares: parseFloat(parseFloat(shares).toFixed(4)) } : {}),
-          deadline: weekToFriday(weekStr),
-          color,
-        },
-        null,
-        2
-      )
-    : null;
-
-  const handleCopy = async () => {
-    if (!jsonEntry) return;
-    await navigator.clipboard.writeText(jsonEntry);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleSubmit = async () => {
+    if (!isValid) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const id = `${ticker.toLowerCase().replace(/[^a-z0-9]/g, '')}-${Date.now()}`;
+      const body = {
+        id,
+        ticker: ticker.toUpperCase().trim(),
+        buyPrice: parseFloat(parseFloat(buyPrice).toFixed(2)),
+        ...(hasShares ? { shares: parseFloat(parseFloat(shares).toFixed(4)) } : {}),
+        deadline: weekToFriday(weekStr),
+        color,
+        inPlay,
+      };
+      const res = await fetch('/api/positions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? `Server error ${res.status}`);
+      }
+      onHorseAdded();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Noe gikk galt');
+      setLoading(false);
+    }
   };
 
   const handleReset = () => {
@@ -74,7 +83,8 @@ export function BettingWindow({ isOpen, onClose }: Props) {
     setShares('');
     setWeekStr('');
     setColor(DEFAULT_COLOR);
-    setCopied(false);
+    setInPlay(true);
+    setError(null);
   };
 
   if (!isOpen) return null;
@@ -89,14 +99,14 @@ export function BettingWindow({ isOpen, onClose }: Props) {
 
       {/* Panel */}
       <div
-        className={`fixed top-0 right-0 h-full w-full max-w-md z-50 flex flex-col shadow-2xl panel-visible`}
+        className="fixed top-0 right-0 h-full w-full max-w-md z-50 flex flex-col shadow-2xl panel-visible"
         style={{ backgroundColor: '#0F172A', borderLeft: '1px solid #1E293B' }}
       >
         {/* Header */}
         <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
           <div>
             <h2 className="font-bold text-white text-lg">Enter the Race</h2>
-            <p className="text-xs text-slate-500 mt-0.5">New entry → copy JSON → paste into <code className="text-slate-400 bg-slate-800 px-1 rounded">stocks.json</code></p>
+            <p className="text-xs text-slate-500 mt-0.5">Fyll inn og trykk «Add Horse»</p>
           </div>
           <button
             onClick={onClose}
@@ -126,7 +136,7 @@ export function BettingWindow({ isOpen, onClose }: Props) {
             />
           </div>
 
-          {/* Prices + Amount */}
+          {/* Buy Price + Shares */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
@@ -159,7 +169,7 @@ export function BettingWindow({ isOpen, onClose }: Props) {
             </div>
           </div>
 
-          {/* Week Number */}
+          {/* Week */}
           <div>
             <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
               Week Number
@@ -173,12 +183,12 @@ export function BettingWindow({ isOpen, onClose }: Props) {
             />
             {weekStr && (
               <p className="text-xs text-slate-600 mt-1">
-                Deadline: Friday {weekToFriday(weekStr)}
+                Deadline: fredag {weekToFriday(weekStr)}
               </p>
             )}
           </div>
 
-          {/* Color picker */}
+          {/* Color */}
           <div>
             <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
               Horse Color
@@ -207,38 +217,43 @@ export function BettingWindow({ isOpen, onClose }: Props) {
             </div>
           </div>
 
-          {/* Preview */}
-          {isValid && (
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                  Add to stocks.json
-                </label>
-                <button
-                  onClick={handleCopy}
-                  className="text-xs px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer"
-                  style={{
-                    backgroundColor: copied ? '#14532d' : '#1E3A5F',
-                    color: copied ? '#86EFAC' : '#93C5FD',
-                    border: `1px solid ${copied ? '#166534' : '#1d4ed8'}`,
-                  }}
-                >
-                  {copied ? 'Copied!' : 'Copy JSON'}
-                </button>
-              </div>
-              <pre
-                className="bg-slate-900 border border-slate-700 rounded-lg p-3 text-xs font-mono text-slate-300 overflow-x-auto select-all"
-                style={{ lineHeight: 1.6 }}
+          {/* Type toggle */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+              Type
+            </label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setInPlay(true)}
+                className="flex-1 py-2 rounded-lg text-sm font-semibold transition-all cursor-pointer border"
+                style={{
+                  backgroundColor: inPlay ? '#14532d' : '#1a2030',
+                  color: inPlay ? '#86EFAC' : '#475569',
+                  borderColor: inPlay ? '#166534' : '#334155',
+                }}
               >
-                {jsonEntry}
-              </pre>
-              <p className="text-xs text-slate-600 mt-2">
-                Copy this entry and add it to the <code className="text-slate-400">stocks.json</code> array, then push to GitHub.
-              </p>
+                ⚡ Skarp hest
+              </button>
+              <button
+                onClick={() => setInPlay(false)}
+                className="flex-1 py-2 rounded-lg text-sm font-semibold transition-all cursor-pointer border"
+                style={{
+                  backgroundColor: !inPlay ? '#1e1a30' : '#1a2030',
+                  color: !inPlay ? '#a78bfa' : '#475569',
+                  borderColor: !inPlay ? '#6d28d9' : '#334155',
+                }}
+              >
+                👁 Observasjon
+              </button>
             </div>
-          )}
+            <p className="text-xs text-slate-600 mt-1.5">
+              {inPlay
+                ? 'Teller i statistikk og snitt.'
+                : 'Vises på banen, men påvirker ikke statistikken.'}
+            </p>
+          </div>
 
-          {/* Gain calc preview */}
+          {/* Quick math */}
           {isValid && (
             <div
               className="rounded-lg p-3 border"
@@ -271,6 +286,16 @@ export function BettingWindow({ isOpen, onClose }: Props) {
               </div>
             </div>
           )}
+
+          {/* Error */}
+          {error && (
+            <div
+              className="rounded-lg px-3 py-2.5 text-sm"
+              style={{ background: '#1a0a0a', border: '1px solid #3a1818', color: '#f87171' }}
+            >
+              {error}
+            </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -282,15 +307,15 @@ export function BettingWindow({ isOpen, onClose }: Props) {
             Reset
           </button>
           <button
-            onClick={handleCopy}
-            disabled={!isValid}
+            onClick={handleSubmit}
+            disabled={!isValid || loading}
             className="flex-1 py-2.5 rounded-lg text-sm font-bold transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             style={{
-              backgroundColor: isValid ? (copied ? '#14532d' : '#22C55E') : '#1E293B',
-              color: isValid ? (copied ? '#86EFAC' : '#020617') : '#475569',
+              backgroundColor: isValid && !loading ? '#22C55E' : '#1E293B',
+              color: isValid && !loading ? '#020617' : '#475569',
             }}
           >
-            {copied ? 'Copied to clipboard!' : 'Copy JSON entry'}
+            {loading ? 'Legger til…' : '🏇 Add Horse'}
           </button>
         </div>
       </div>

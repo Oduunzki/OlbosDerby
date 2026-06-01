@@ -88,7 +88,10 @@ export function ShortTrack({ positions, prices, tickChanges, darkHorse }: Props)
   const [replayWeekKey, setReplayWeekKey] = useState<string | null>(null);
   const [tickCounters, setTickCounters] = useState<Record<string, number>>({});
   const [absorbCounters, setAbsorbCounters] = useState<Record<string, number>>({});
+  const [includeObs, setIncludeObs] = useState(false);
   const prevTicksRef = useRef<Record<string, number | null>>({});
+
+  const hasObsHorses = positions.some(s => s.inPlay === false);
 
   useEffect(() => {
     const timers: ReturnType<typeof setTimeout>[] = [];
@@ -108,7 +111,9 @@ export function ShortTrack({ positions, prices, tickChanges, darkHorse }: Props)
 
   const dhProgress = getDarkHorseProgress(darkHorse);
 
-  const gains = positions.map(s => {
+  const statPositions = includeObs ? positions : positions.filter(s => s.inPlay !== false);
+
+  const gains = statPositions.map(s => {
     const p = prices[s.yahooSymbol];
     return p != null ? (p - s.buyPrice) / s.buyPrice : null;
   }).filter((g): g is number => g != null);
@@ -121,22 +126,22 @@ export function ShortTrack({ positions, prices, tickChanges, darkHorse }: Props)
   const portfolioBeat = avgGain != null && avgGain >= dhProgress;
 
   const bestStock = bestGain != null
-    ? positions.find(s => {
+    ? statPositions.find(s => {
         const p = prices[s.yahooSymbol];
         return p != null && Math.abs((p - s.buyPrice) / s.buyPrice - bestGain!) < 0.0001;
       })
     : null;
 
   const worstStock = worstGain != null
-    ? positions.find(s => {
+    ? statPositions.find(s => {
         const p = prices[s.yahooSymbol];
         return p != null && Math.abs((p - s.buyPrice) / s.buyPrice - worstGain!) < 0.0001;
       })
     : null;
 
-  const hasShares  = positions.some(s => (s.shares ?? 0) > 0);
-  const totalCost  = hasShares ? positions.reduce((sum, s) => sum + (s.shares ?? 0) * s.buyPrice, 0) : null;
-  const totalNow   = hasShares ? positions.reduce((sum, s) => {
+  const hasShares  = statPositions.some(s => (s.shares ?? 0) > 0);
+  const totalCost  = hasShares ? statPositions.reduce((sum, s) => sum + (s.shares ?? 0) * s.buyPrice, 0) : null;
+  const totalNow   = hasShares ? statPositions.reduce((sum, s) => {
     const p = prices[s.yahooSymbol];
     return sum + (s.shares ?? 0) * (p ?? s.buyPrice);
   }, 0) : null;
@@ -194,6 +199,24 @@ export function ShortTrack({ positions, prices, tickChanges, darkHorse }: Props)
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+          {hasObsHorses && (
+            <button
+              onClick={() => setIncludeObs(v => !v)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '6px',
+                padding: '8px 14px', borderRadius: '10px', cursor: 'pointer',
+                background: includeObs ? '#1a1030' : '#09120a',
+                border: `1px solid ${includeObs ? '#6d28d9' : '#1e3525'}`,
+                color: includeObs ? '#a78bfa' : '#4a6050',
+                fontFamily: 'Fira Code, monospace',
+                fontSize: '11px', letterSpacing: '0.06em',
+                transition: 'all 0.2s',
+              }}
+            >
+              👁 {includeObs ? 'Alle hester' : 'Skarpe hester'}
+            </button>
+          )}
+
           <button
             onClick={() => setShowReplay(true)}
             style={{
@@ -276,12 +299,13 @@ export function ShortTrack({ positions, prices, tickChanges, darkHorse }: Props)
 
           {/* Lane rows */}
           {ranked.map((stock, i) => {
-            const cp    = prices[stock.yahooSymbol] ?? null;
-            const prog  = cp != null ? (cp - stock.buyPrice) / stock.buyPrice : null;
-            const hX    = prog != null ? toX(clampV(prog)) : null;
-            const ahead = prog != null ? prog - dhProgress : null;
-            const isWin = ahead != null && ahead >= 0;
-            const isNeg = prog != null && prog < 0;
+            const cp      = prices[stock.yahooSymbol] ?? null;
+            const prog    = cp != null ? (cp - stock.buyPrice) / stock.buyPrice : null;
+            const hX      = prog != null ? toX(clampV(prog)) : null;
+            const ahead   = prog != null ? prog - dhProgress : null;
+            const isWin   = ahead != null && ahead >= 0;
+            const isNeg   = prog != null && prog < 0;
+            const isObs   = stock.inPlay === false;
 
             return (
               <div key={stock.id} style={{
@@ -289,6 +313,7 @@ export function ShortTrack({ positions, prices, tickChanges, darkHorse }: Props)
                 position: 'relative',
                 background: LANE_BG[i % LANE_BG.length],
                 borderBottom: '1px solid #101808',
+                opacity: isObs ? 0.45 : 1,
               }}>
                 {/* Subtle turf grain */}
                 <div style={{
@@ -306,11 +331,17 @@ export function ShortTrack({ positions, prices, tickChanges, darkHorse }: Props)
                 <div style={{
                   position: 'absolute', left: '14px', top: '50%',
                   transform: 'translateY(-50%)',
+                  display: 'flex', alignItems: 'center', gap: '5px',
                   fontFamily: "'Playfair Display', serif", fontWeight: 700,
                   color: stock.color, fontSize: '14px',
                   textShadow: `0 0 14px ${stock.color}55`,
                   zIndex: 2, userSelect: 'none',
-                }}>{stock.ticker}</div>
+                }}>
+                  {stock.ticker}
+                  {isObs && (
+                    <span style={{ fontSize: '10px', opacity: 0.7, fontFamily: 'sans-serif' }} title="Observasjon — teller ikke i statistikk">👁</span>
+                  )}
+                </div>
 
                 {/* 5-day section labels (faded % in background) */}
                 {dayBoundaries.map((day, di) => {
@@ -504,11 +535,22 @@ export function ShortTrack({ positions, prices, tickChanges, darkHorse }: Props)
 
       {/* ── Summary stat cards ── */}
       {hasData && avgGain != null && (
+        <div style={{ marginBottom: '28px' }}>
+        {hasObsHorses && (
+          <p style={{
+            fontSize: '10px', color: includeObs ? '#a78bfa' : '#4a6050',
+            fontFamily: 'Fira Code, monospace', letterSpacing: '0.06em',
+            marginBottom: '8px',
+          }}>
+            {includeObs
+              ? `📊 alle ${positions.length} hester · inkl. observasjon`
+              : `📊 ${statPositions.length} skarpe hester · ${positions.length - statPositions.length} obs holdt utenfor`}
+          </p>
+        )}
         <div style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
           gap: '10px',
-          marginBottom: '28px',
         }}>
           <StatCard
             label="Portfolio avg"
@@ -542,6 +584,7 @@ export function ShortTrack({ positions, prices, tickChanges, darkHorse }: Props)
               sub={totalNow != null ? `portfolio $${fmt(totalNow)}` : undefined}
             />
           )}
+        </div>
         </div>
       )}
 

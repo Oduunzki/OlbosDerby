@@ -1,8 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useMarketOpenCountdown } from './hooks/useMarketOpenCountdown';
 import { useSoundEngine } from './hooks/useSoundEngine';
 import { SoundContext } from './context/SoundContext';
-import stocksData from './data/stocks.json';
 import shortsData from './data/shorts.json';
 import type { Stock, ShortStock, DarkHorseConfig } from './types';
 import { useStockPrices } from './hooks/useStockPrices';
@@ -13,19 +12,8 @@ import { BettingPanel } from './components/BettingPanel';
 import { LoginScreen } from './components/LoginScreen';
 import { CountdownOverlay } from './components/CountdownOverlay';
 
-const stocks: Stock[] = stocksData as Stock[];
 const shortPositions: ShortStock[] = (shortsData as { darkHorse: DarkHorseConfig; positions: ShortStock[] }).positions;
 const darkHorse: DarkHorseConfig = (shortsData as { darkHorse: DarkHorseConfig; positions: ShortStock[] }).darkHorse;
-const stocksAsShorts: ShortStock[] = stocks.map(s => ({
-  id: s.id,
-  ticker: s.ticker,
-  yahooSymbol: s.ticker,
-  buyPrice: s.buyPrice,
-  buyDate: darkHorse.startDate,
-  currency: 'USD',
-  color: s.color,
-  shares: s.shares,
-}));
 
 function formatTime(date: Date, timeZone?: string): string {
   return date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone });
@@ -46,6 +34,7 @@ export default function App() {
   const [authToken, setAuthToken] = useState<string | null>(() => localStorage.getItem('auth-token'));
   const [authUserId, setAuthUserId] = useState<string | null>(() => localStorage.getItem('auth-user-id'));
   const { playSound, muted, toggleMute } = useSoundEngine();
+  const [stocks, setStocks] = useState<Stock[]>([]);
 
   // Validate stored session on load
   useEffect(() => {
@@ -54,6 +43,16 @@ export default function App() {
       .then(r => { if (!r.ok) handleLogout(); })
       .catch(() => {});
   }, []);
+
+  const fetchPositions = useCallback(() => {
+    if (!authToken) return;
+    fetch('/api/positions', { headers: { Authorization: `Bearer ${authToken}` } })
+      .then(r => r.ok ? r.json() : [])
+      .then((data: Stock[]) => setStocks(data))
+      .catch(() => {});
+  }, [authToken]);
+
+  useEffect(() => { fetchPositions(); }, [fetchPositions]);
 
   const handleLogin = (userId: string, token: string) => {
     localStorage.setItem('auth-token', token);
@@ -71,6 +70,18 @@ export default function App() {
     setAuthToken(null);
     setAuthUserId(null);
   };
+
+  const stocksAsShorts: ShortStock[] = stocks.map(s => ({
+    id: s.id,
+    ticker: s.ticker,
+    yahooSymbol: s.ticker,
+    buyPrice: s.buyPrice,
+    buyDate: darkHorse.startDate,
+    currency: 'USD',
+    color: s.color,
+    shares: s.shares,
+    inPlay: s.inPlay,
+  }));
 
   // Must be called before any conditional returns to satisfy rules of hooks
   const allTickers = [
@@ -300,7 +311,12 @@ export default function App() {
       </button>
 
 
-      <BettingWindow isOpen={bettingOpen} onClose={() => setBettingOpen(false)} />
+      <BettingWindow
+        isOpen={bettingOpen}
+        onClose={() => setBettingOpen(false)}
+        authToken={authToken ?? ''}
+        onHorseAdded={() => { fetchPositions(); setBettingOpen(false); }}
+      />
     </div>
     </SoundContext.Provider>
   );
