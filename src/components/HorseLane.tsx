@@ -1,5 +1,6 @@
-import { useRef } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import type { Stock } from '../types';
+import { useSoundContext } from '../context/SoundContext';
 
 interface Props {
   stock: Stock;
@@ -36,18 +37,74 @@ function getWeekLabel(deadline: string, daysLeft: number): string {
   return `W${week}`;
 }
 
-function getCommentary(progress: number, daysLeft: number): string {
-  if (progress >= 1.0) return 'TARGET HIT! Collect your gains, champ!';
-  if (progress >= 0.9) return "So close it hurts. Don't blink.";
-  if (progress >= 0.75) return 'Looking good! Almost there!';
-  if (progress >= 0.5) return 'Neck and neck with the finish line.';
-  if (progress >= 0.25) return 'Getting warmed up...';
-  if (progress >= 0.1) return 'Still finding its legs.';
-  if (progress >= 0) {
-    if (daysLeft <= 1) return 'This is fine. Everything is fine. 🔥';
-    return 'Just taking a slow start... right?';
+const COMMENTARY_POOL: Record<string, string[]> = {
+  winner: [
+    'TARGET HIT! Collect your gains, champ!',
+    'CHING CHING! Nå kan du gå på Egon.',
+    'Hesten er i mål! 🏆 Hvem er best? Oss.',
+    'GEVINST! Selg mens du ler.',
+  ],
+  near: [
+    "Så nær at det gjør vondt. Ikke blunk.",
+    "Don't blink now!",
+    'GÅ! GÅ! GÅ!',
+    'Fingeren på avtrekkeren...',
+  ],
+  good: [
+    'Looking good! Nesten der.',
+    'Sterk finish på gang her!',
+    'Holder jevnt trykk mot mål.',
+    'Dette ser bra ut, faktisk.',
+  ],
+  mid: [
+    'Neck and neck med mållinjen.',
+    'Midtveis — nå gjelder det.',
+    'Halvveis, halvparten igjen. Logisk.',
+    'Greit tempo. Greit nok.',
+  ],
+  early: [
+    'Finner bena sine...',
+    'Warmup-fasen er over snart.',
+    'Rolig start. Akkurat hva alle sier.',
+    'Teknisk sett i gang.',
+  ],
+  slow: [
+    'Bare tar det med ro... sant?',
+    'Ingen panikk. Enda.',
+    'Hmm.',
+    'Dette er fint. Alt er fint.',
+  ],
+  danger: [
+    'Hesten gikk bakover. Klassiker.',
+    'Dette er fint. Alt er fint. 🔥',
+    'Hvem godkjente dette kjøpet?',
+    'Stop loss er din venn. Bare sier det.',
+  ],
+};
+
+function simpleHash(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
+function getCommentary(progress: number, daysLeft: number, ticker: string): string {
+  const today = new Date().toDateString();
+  const seed = simpleHash(ticker + today);
+
+  let pool: string[];
+  if (progress >= 1.0)       pool = COMMENTARY_POOL.winner;
+  else if (progress >= 0.9)  pool = COMMENTARY_POOL.near;
+  else if (progress >= 0.75) pool = COMMENTARY_POOL.good;
+  else if (progress >= 0.5)  pool = COMMENTARY_POOL.mid;
+  else if (progress >= 0.25) pool = COMMENTARY_POOL.early;
+  else if (progress >= 0) {
+    pool = daysLeft <= 1 ? COMMENTARY_POOL.danger : COMMENTARY_POOL.slow;
+  } else {
+    pool = COMMENTARY_POOL.danger;
   }
-  return 'Horse went backwards. Classic.';
+
+  return pool[seed % pool.length];
 }
 
 function getProgressColor(progress: number): string {
@@ -71,6 +128,11 @@ function getConfettiPieces(color: string) {
 
 export function HorseLane({ stock, currentPrice, tickChange, isMarketOpen, rank }: Props) {
   const trackRef = useRef<HTMLDivElement>(null);
+  const { playSound } = useSoundContext();
+  const [eventComment, setEventComment] = useState<string | null>(null);
+  const prevProgressRef = useRef<number | null>(null);
+  const eventTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const daysLeft = getDaysLeft(stock.deadline);
   const hasTarget = stock.targetPrice != null && stock.targetPrice > 0;
 
@@ -92,6 +154,49 @@ export function HorseLane({ stock, currentPrice, tickChange, isMarketOpen, rank 
     currentPrice != null ? currentPrice - stock.buyPrice : null;
   const priceChangePct =
     priceChange != null ? (priceChange / stock.buyPrice) * 100 : null;
+
+  // Fire sounds + event commentary on tick
+  useEffect(() => {
+    if (tickChange == null || tickChange === 0 || currentPrice == null) return;
+
+    const pct = Math.abs(tickChange / currentPrice) * 100;
+    const isBig = pct >= 0.5;
+
+    if (tickChange > 0) {
+      playSound(isBig ? 'big-up' : 'tick-up');
+      if (isBig) {
+        showEventComment(`HEFTIG! ${stock.ticker} fyker oppover! +${pct.toFixed(2)}%`);
+      }
+    } else {
+      playSound(isBig ? 'big-down' : 'tick-down');
+      if (isBig) {
+        showEventComment(`Aua. ${stock.ticker} tok en smell. ${pct.toFixed(2)}%`);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tickChange]);
+
+  // Fire sounds on progress milestones
+  useEffect(() => {
+    if (progress == null) return;
+    const prev = prevProgressRef.current;
+    prevProgressRef.current = progress;
+    if (prev == null) return;
+    if (progress >= 1.0 && prev < 1.0) {
+      playSound('target-hit');
+      showEventComment(`${stock.ticker} er i MÅL! 🏆 SELG SELG SELG!`);
+    } else if (progress >= 0.9 && prev < 0.9) {
+      playSound('near-target');
+      showEventComment(`${stock.ticker} er i innspurten! Nesten fremme!`);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [progress]);
+
+  function showEventComment(msg: string) {
+    if (eventTimerRef.current) clearTimeout(eventTimerRef.current);
+    setEventComment(msg);
+    eventTimerRef.current = setTimeout(() => setEventComment(null), 4000);
+  }
 
   const horseClass = isWinner
     ? 'horse-winner'
@@ -313,9 +418,13 @@ export function HorseLane({ stock, currentPrice, tickChange, isMarketOpen, rank 
               P&L {priceChange >= 0 ? '+' : ''}${formatPrice(priceChange * stock.shares)}
             </span>
           </div>
-        ) : hasTarget && progress != null ? (
-          <p className="text-xs text-slate-500 mt-1 italic text-center">
-            {getCommentary(progress, daysLeft)}
+        ) : progress != null ? (
+          <p
+            key={eventComment ?? 'static'}
+            className="text-xs mt-1 italic text-center commentary-change"
+            style={{ color: eventComment ? '#c8a040' : '#64748b' }}
+          >
+            {eventComment ?? getCommentary(progress, daysLeft, stock.ticker)}
           </p>
         ) : null}
       </div>
