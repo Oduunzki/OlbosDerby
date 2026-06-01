@@ -3,6 +3,28 @@ import lottie from 'lottie-web';
 import timerData from '../assets/timer-countdown.json';
 import letsGoData from '../assets/lets-go.json';
 
+function playBell() {
+  const ctx = new AudioContext();
+  const partials = [
+    { freq: 880, gain: 0.6, decay: 2.8 },
+    { freq: 1320, gain: 0.3, decay: 1.8 },
+    { freq: 2200, gain: 0.15, decay: 1.0 },
+    { freq: 3080, gain: 0.07, decay: 0.6 },
+  ];
+  partials.forEach(({ freq, gain, decay }) => {
+    const osc = ctx.createOscillator();
+    const env = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    env.gain.setValueAtTime(gain, ctx.currentTime);
+    env.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + decay);
+    osc.connect(env);
+    env.connect(ctx.destination);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + decay);
+  });
+}
+
 interface Props {
   onComplete: () => void;
   onSkip: () => void;
@@ -28,6 +50,7 @@ export function CountdownOverlay({ onComplete, onSkip }: Props) {
     }
 
     if (phase === 'letsgo') {
+      playBell();
       const anim = lottie.loadAnimation({
         container: containerRef.current,
         animationData: letsGoData,
