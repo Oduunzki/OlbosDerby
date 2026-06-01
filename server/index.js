@@ -9,6 +9,9 @@ import * as db from './db.js';
 
 const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
 function loadCurrentPositions() {
   try {
     const stocks = JSON.parse(readFileSync(join(__dirname, '../src/data/stocks.json'), 'utf8'));
@@ -22,9 +25,6 @@ function loadCurrentPositions() {
     return { stocks: [], shorts: [], darkHorse: null };
   }
 }
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 
 const app = express();
 app.use(cors());
