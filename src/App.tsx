@@ -87,6 +87,7 @@ export default function App() {
   const allTickers = [
     ...stocks.map(s => s.ticker),
     ...shortPositions.map(s => s.yahooSymbol),
+    'USDNOK=X',
   ];
   const { prices, tickChanges, lastUpdated, isMarketOpen, loading, error } = useStockPrices(allTickers);
   const now = useNow();

@@ -146,6 +146,8 @@ export function ShortTrack({ positions, prices, tickChanges, darkHorse }: Props)
     return sum + (s.shares ?? 0) * (p ?? s.buyPrice);
   }, 0) : null;
   const totalPnl   = totalCost != null && totalNow != null ? totalNow - totalCost : null;
+  const usdNok     = prices['USDNOK=X'] ?? null;
+  const totalPnlNok = totalPnl != null && usdNok != null ? totalPnl * usdNok : null;
 
   const ranked = [...positions].sort((a, b) => {
     const pa = prices[a.yahooSymbol] != null ? (prices[a.yahooSymbol]! - a.buyPrice) / a.buyPrice : -Infinity;
@@ -582,6 +584,14 @@ export function ShortTrack({ positions, prices, tickChanges, darkHorse }: Props)
               value={`${totalPnl >= 0 ? '+' : '−'}$${fmt(Math.abs(totalPnl))}`}
               color={totalPnl >= 0 ? WIN : LOSE}
               sub={totalNow != null ? `portfolio $${fmt(totalNow)}` : undefined}
+            />
+          )}
+          {totalPnlNok != null && (
+            <StatCard
+              label="P&L (NOK)"
+              value={`${totalPnlNok >= 0 ? '+' : '−'}kr ${fmt(Math.abs(totalPnlNok), 0)}`}
+              color={totalPnlNok >= 0 ? WIN : LOSE}
+              sub={usdNok != null ? `kurs ${fmt(usdNok, 2)}` : undefined}
             />
           )}
         </div>
