@@ -2,6 +2,17 @@ import { useState, useEffect, useRef } from 'react';
 import type { ShortStock, DarkHorseConfig } from '../types';
 import { ReplayModal } from './ReplayModal';
 
+function getPrevWeekKey(): string {
+  const now = new Date();
+  const prev = new Date(now);
+  prev.setUTCDate(prev.getUTCDate() - 7);
+  const d = new Date(prev);
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const week = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+}
+
 interface Props {
   positions: ShortStock[];
   prices: Record<string, number | null>;
@@ -74,6 +85,7 @@ function StatCard({ label, value, color, sub }: StatCardProps) {
 export function ShortTrack({ positions, prices, tickChanges, darkHorse }: Props) {
 
   const [showReplay, setShowReplay] = useState(false);
+  const [replayWeekKey, setReplayWeekKey] = useState<string | null>(null);
   const [tickCounters, setTickCounters] = useState<Record<string, number>>({});
   const [absorbCounters, setAbsorbCounters] = useState<Record<string, number>>({});
   const prevTicksRef = useRef<Record<string, number | null>>({});
@@ -201,6 +213,26 @@ export function ShortTrack({ positions, prices, tickChanges, darkHorse }: Props)
               (e.currentTarget as HTMLButtonElement).style.color = '#4a6050';
             }}
           >⏮ REPLAY</button>
+
+          <button
+            onClick={() => setReplayWeekKey(getPrevWeekKey())}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '6px',
+              padding: '8px 14px', borderRadius: '10px', cursor: 'pointer',
+              background: '#09120a', border: '1px solid #1e3525',
+              color: '#4a6050', fontFamily: 'Fira Code, monospace',
+              fontSize: '11px', letterSpacing: '0.06em',
+              transition: 'border-color 0.2s, color 0.2s',
+            }}
+            onMouseEnter={e => {
+              (e.currentTarget as HTMLButtonElement).style.borderColor = GOLD + '88';
+              (e.currentTarget as HTMLButtonElement).style.color = GOLD;
+            }}
+            onMouseLeave={e => {
+              (e.currentTarget as HTMLButtonElement).style.borderColor = '#1e3525';
+              (e.currentTarget as HTMLButtonElement).style.color = '#4a6050';
+            }}
+          >⏮ Forrige uke</button>
 
           <div style={{
             display: 'flex', alignItems: 'center', gap: '8px',
@@ -519,6 +551,15 @@ export function ShortTrack({ positions, prices, tickChanges, darkHorse }: Props)
           positions={positions}
           darkHorse={darkHorse}
           onClose={() => setShowReplay(false)}
+        />
+      )}
+
+      {replayWeekKey && (
+        <ReplayModal
+          positions={positions}
+          darkHorse={darkHorse}
+          weekKey={replayWeekKey}
+          onClose={() => setReplayWeekKey(null)}
         />
       )}
     </div>

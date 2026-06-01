@@ -100,6 +100,11 @@ export async function initSchema() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS pin_hash TEXT NOT NULL DEFAULT '';
   `);
 
+  // Migrate: add dark_horse column to week_positions
+  await pool.query(`
+    ALTER TABLE week_positions ADD COLUMN IF NOT EXISTS dark_horse JSONB;
+  `);
+
   // Seed fixed users (upsert PIN hash so it updates if changed)
   for (const u of USERS) {
     await pool.query(
@@ -429,22 +434,44 @@ export async function getPriceHistory(tickers, from) {
   return out;
 }
 
-export async function saveWeekPositions(weekKey, seasonId, stocks, shorts) {
+export async function saveWeekPositions(weekKey, seasonId, stocks, shorts, darkHorse) {
   await pool.query(
-    `INSERT INTO week_positions (week_key, season_id, stocks, shorts)
-     VALUES ($1, $2, $3, $4)
-     ON CONFLICT (week_key, season_id) DO UPDATE SET stocks = $3, shorts = $4, saved_at = NOW()`,
-    [weekKey, seasonId, JSON.stringify(stocks), JSON.stringify(shorts)]
+    `INSERT INTO week_positions (week_key, season_id, stocks, shorts, dark_horse)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (week_key, season_id) DO UPDATE SET stocks = $3, shorts = $4, dark_horse = $5, saved_at = NOW()`,
+    [weekKey, seasonId, JSON.stringify(stocks), JSON.stringify(shorts), JSON.stringify(darkHorse ?? null)]
   );
 }
 
 export async function getWeekPositions(weekKey, seasonId) {
   const res = await pool.query(
-    'SELECT stocks, shorts FROM week_positions WHERE week_key = $1 AND season_id = $2',
+    'SELECT stocks, shorts, dark_horse FROM week_positions WHERE week_key = $1 AND season_id = $2',
     [weekKey, seasonId]
   );
   if (res.rows.length === 0) return null;
-  return { stocks: res.rows[0].stocks, shorts: res.rows[0].shorts };
+  return { stocks: res.rows[0].stocks, shorts: res.rows[0].shorts, darkHorse: res.rows[0].dark_horse };
+}
+
+export async function getReplayPriceHistory(tickers, from, to) {
+  if (tickers.length === 0) return {};
+  const res = await pool.query(
+    `SELECT DISTINCT ON (ticker, date_trunc('hour', captured_at))
+       ticker,
+       price,
+       date_trunc('hour', captured_at) AS hour
+     FROM price_history
+     WHERE ticker = ANY($1)
+       AND captured_at >= $2
+       AND captured_at <= $3
+     ORDER BY ticker, date_trunc('hour', captured_at), captured_at DESC`,
+    [tickers, from, to ?? new Date()]
+  );
+  const out = {};
+  for (const row of res.rows) {
+    if (!out[row.ticker]) out[row.ticker] = [];
+    out[row.ticker].push({ date: row.hour.toISOString(), close: parseFloat(row.price) });
+  }
+  return out;
 }
 
 export async function getBetsForWeek(weekKey, seasonId) {

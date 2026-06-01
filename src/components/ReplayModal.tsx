@@ -5,6 +5,7 @@ interface Props {
   positions: ShortStock[];
   darkHorse: DarkHorseConfig;
   onClose: () => void;
+  weekKey?: string;  // if set, load from DB instead of Yahoo Finance
 }
 
 interface DaySnapshot {
@@ -48,12 +49,14 @@ function gallopDuration(ahead: number | null): string {
   return '0.35s';
 }
 
-export function ReplayModal({ positions, darkHorse, onClose }: Props) {
+export function ReplayModal({ positions, darkHorse, onClose, weekKey }: Props) {
   const [snapshots, setSnapshots] = useState<DaySnapshot[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dayIdx, setDayIdx] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [resolvedPositions, setResolvedPositions] = useState<ShortStock[]>(positions);
+  const [resolvedDarkHorse, setResolvedDarkHorse] = useState<DarkHorseConfig>(darkHorse);
 
   // Fetch historical data
   useEffect(() => {
@@ -61,39 +64,61 @@ export function ReplayModal({ positions, darkHorse, onClose }: Props) {
       setLoading(true);
       setError(null);
       try {
-        const symbols = positions.map(p => p.yahooSymbol).join(',');
-        const from = darkHorse.startDate;
-        const res = await fetch(`/api/history?tickers=${encodeURIComponent(symbols)}&from=${from}`);
-        const raw: Record<string, { date: string; close: number }[]> = await res.json();
+        let raw: Record<string, { date: string; close: number }[]> = {};
+        let resolvedPos = positions;
+        let resolvedDH = darkHorse;
 
-        // Collect all unique hourly timestamps sorted
+        if (weekKey) {
+          // Load from our DB via the replay endpoint
+          const authToken = localStorage.getItem('auth-token');
+          const replayRes = await fetch(`/api/replay/${weekKey}`, {
+            headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+          });
+          if (!replayRes.ok) throw new Error('Could not load replay data');
+          const replayData = await replayRes.json();
+          resolvedPos = replayData.positions;
+          if (replayData.darkHorse) resolvedDH = replayData.darkHorse;
+          raw = replayData.priceHistory;
+          // Normalize ticker keys to uppercase
+          const normalizedRaw: typeof raw = {};
+          for (const [k, v] of Object.entries(raw)) normalizedRaw[k.toUpperCase()] = v;
+          raw = normalizedRaw;
+        } else {
+          // Load from Yahoo Finance (current week)
+          const symbols = positions.map(p => p.yahooSymbol).join(',');
+          const from = darkHorse.startDate;
+          const res = await fetch(`/api/history?tickers=${encodeURIComponent(symbols)}&from=${from}`);
+          raw = await res.json();
+        }
+
+        // Build snapshots (same logic as before)
         const dateSet = new Set<string>();
         Object.values(raw).forEach(arr => arr.forEach(d => dateSet.add(d.date)));
         const dates = Array.from(dateSet).sort();
 
-        // Build per-ticker lookup maps
         const tickerMap: Record<string, Record<string, number>> = {};
-        positions.forEach(p => {
-          const sym = p.yahooSymbol.toUpperCase();
+        resolvedPos.forEach(p => {
+          const sym = (p.yahooSymbol ?? p.ticker).toUpperCase();
           tickerMap[sym] = {};
           (raw[sym] ?? []).forEach(d => { tickerMap[sym][d.date] = d.close; });
         });
 
-        // Build snapshots with carry-forward so horses with no data at a given
-        // hour use their last known price (handles HLE.DE vs US hours mismatch)
         const lastKnown: Record<string, number> = {};
         const snaps: DaySnapshot[] = [];
         dates.forEach(date => {
           const prices: Record<string, number> = {};
-          positions.forEach(p => {
-            const sym = p.yahooSymbol.toUpperCase();
+          resolvedPos.forEach(p => {
+            const sym = (p.yahooSymbol ?? p.ticker).toUpperCase();
+            const key = p.yahooSymbol ?? p.ticker;
             if (tickerMap[sym][date] != null) lastKnown[sym] = tickerMap[sym][date];
-            if (lastKnown[sym] != null) prices[p.yahooSymbol] = lastKnown[sym];
+            if (lastKnown[sym] != null) prices[key] = lastKnown[sym];
           });
           if (Object.keys(prices).length > 0) snaps.push({ date, prices });
         });
 
         setSnapshots(snaps);
+        setResolvedPositions(resolvedPos);
+        setResolvedDarkHorse(resolvedDH);
         setDayIdx(0);
         setPlaying(snaps.length > 1);
       } catch {
@@ -103,7 +128,7 @@ export function ReplayModal({ positions, darkHorse, onClose }: Props) {
       }
     }
     load();
-  }, [positions, darkHorse.startDate]);
+  }, [positions, darkHorse.startDate, weekKey]);
 
   // Playback timer
   useEffect(() => {
@@ -136,7 +161,7 @@ export function ReplayModal({ positions, darkHorse, onClose }: Props) {
   }, [dayIdx, snapshots.length]);
 
   // Track scale — same as ShortTrack
-  const weeklyTarget = darkHorse.pctPerWeek / 100;
+  const weeklyTarget = resolvedDarkHorse.pctPerWeek / 100;
   const TMIN = -0.01;
   const TMAX = weeklyTarget * 1.5;
   const clampV = (v: number) => Math.max(TMIN, Math.min(TMAX, v));
@@ -190,7 +215,7 @@ export function ReplayModal({ positions, darkHorse, onClose }: Props) {
                   color: GOLD, fontSize: '18px', margin: 0,
                 }}>Race Replay</h2>
                 <p style={{ fontSize: '11px', color: '#4a6050', margin: 0 }}>
-                  Dark Horse Challenge · since {darkHorse.startDate}
+                  {weekKey ? `${weekKey} replay` : `Dark Horse Challenge · since ${resolvedDarkHorse.startDate}`}
                 </p>
               </div>
             </div>
@@ -270,9 +295,10 @@ export function ReplayModal({ positions, darkHorse, onClose }: Props) {
                     }} />
 
                     {/* Lanes */}
-                    {positions.map((stock, i) => {
-                      const dhProgress = getDarkHorseProgressAt(darkHorse, snap.date);
-                      const price = snap.prices[stock.yahooSymbol];
+                    {resolvedPositions.map((stock, i) => {
+                      const dhProgress = getDarkHorseProgressAt(resolvedDarkHorse, snap.date);
+                      const priceKey = stock.yahooSymbol ?? stock.ticker;
+                      const price = snap.prices[priceKey];
                       const prog = price != null ? (price - stock.buyPrice) / stock.buyPrice : null;
                       const hX = prog != null ? toX(clampV(prog)) : null;
                       const ahead = prog != null ? prog - dhProgress : null;
@@ -325,7 +351,7 @@ export function ReplayModal({ positions, darkHorse, onClose }: Props) {
                           {/* Pace marker */}
                           <div style={{
                             position: 'absolute', top: 0, bottom: 0,
-                            left: `${toX(clampV(getDarkHorseProgressAt(darkHorse, snap.date)))}%`,
+                            left: `${toX(clampV(getDarkHorseProgressAt(resolvedDarkHorse, snap.date)))}%`,
                             width: '1px',
                             background: `repeating-linear-gradient(180deg, ${PACE} 0px, ${PACE} 4px, transparent 4px, transparent 9px)`,
                             opacity: 0.85, zIndex: 8,
@@ -408,7 +434,7 @@ export function ReplayModal({ positions, darkHorse, onClose }: Props) {
                       }}>START</div>
                       <div style={{
                         position: 'absolute',
-                        left: `${toX(clampV(getDarkHorseProgressAt(darkHorse, snap.date)))}%`,
+                        left: `${toX(clampV(getDarkHorseProgressAt(resolvedDarkHorse, snap.date)))}%`,
                         transform: 'translateX(-50%)', top: '50%', marginTop: '-6px',
                         fontSize: '9px', color: '#6644aa',
                         fontFamily: 'Fira Code, monospace', letterSpacing: '0.1em',

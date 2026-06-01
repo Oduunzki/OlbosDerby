@@ -13,9 +13,13 @@ function loadCurrentPositions() {
   try {
     const stocks = JSON.parse(readFileSync(join(__dirname, '../src/data/stocks.json'), 'utf8'));
     const shortsFile = JSON.parse(readFileSync(join(__dirname, '../src/data/shorts.json'), 'utf8'));
-    return { stocks: Array.isArray(stocks) ? stocks : [], shorts: shortsFile.positions ?? [] };
+    return {
+      stocks: Array.isArray(stocks) ? stocks : [],
+      shorts: shortsFile.positions ?? [],
+      darkHorse: shortsFile.darkHorse ?? null,
+    };
   } catch {
-    return { stocks: [], shorts: [] };
+    return { stocks: [], shorts: [], darkHorse: null };
   }
 }
 
@@ -338,6 +342,46 @@ app.get('/api/betting/bets/:weekKey', requireAuth, async (req, res) => {
   }
 });
 
+app.get('/api/replay/:weekKey', requireAuth, async (req, res) => {
+  try {
+    const state = await db.getState();
+    const { weekKey } = req.params;
+
+    const saved = await db.getWeekPositions(weekKey, state.seasonId);
+    if (!saved) return res.status(404).json({ error: 'No positions saved for this week' });
+
+    const allPositions = [...(saved.stocks ?? []), ...(saved.shorts ?? [])];
+    const tickers = allPositions.map(p => (p.yahooSymbol ?? p.ticker).toUpperCase());
+
+    // Compute Monday of the week as start date
+    const [yearStr, wStr] = weekKey.split('-W');
+    const year = parseInt(yearStr);
+    const week = parseInt(wStr);
+    const jan4 = new Date(Date.UTC(year, 0, 4));
+    const dow = jan4.getUTCDay() || 7;
+    const week1Mon = new Date(jan4);
+    week1Mon.setUTCDate(jan4.getUTCDate() - dow + 1);
+    const monday = new Date(week1Mon);
+    monday.setUTCDate(week1Mon.getUTCDate() + (week - 1) * 7);
+    monday.setUTCHours(13, 30, 0, 0); // NYSE open on Monday
+    const friday = new Date(monday);
+    friday.setUTCDate(monday.getUTCDate() + 4);
+    friday.setUTCHours(22, 0, 0, 0);
+
+    const priceHistory = await db.getReplayPriceHistory(tickers, monday, friday);
+
+    res.json({
+      weekKey,
+      positions: allPositions,
+      darkHorse: saved.darkHorse,
+      priceHistory,
+    });
+  } catch (err) {
+    console.error('[replay]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Serve Vite build in production
 const distPath = join(__dirname, '../dist');
 app.use(express.static(distPath));
@@ -351,8 +395,8 @@ db.initSchema()
   .then(() => db.ensureCurrentSeason())
   .then(async (seasonId) => {
     const weekKey = db.getCurrentWeekKey();
-    const { stocks, shorts } = loadCurrentPositions();
-    await db.saveWeekPositions(weekKey, seasonId, stocks, shorts);
+    const { stocks, shorts, darkHorse } = loadCurrentPositions();
+    await db.saveWeekPositions(weekKey, seasonId, stocks, shorts, darkHorse);
     app.listen(PORT, () => {
       console.log(`HeiaStock Derby running on http://localhost:${PORT}`);
     });
