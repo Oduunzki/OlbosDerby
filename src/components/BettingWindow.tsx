@@ -1,4 +1,13 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+
+function getCurrentWeekStr(): string {
+  const now = new Date();
+  const d = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const week = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+}
 
 interface Props {
   isOpen: boolean;
@@ -33,11 +42,24 @@ export function BettingWindow({ isOpen, onClose, authToken, onHorseAdded }: Prop
   const [ticker, setTicker] = useState('');
   const [buyPrice, setBuyPrice] = useState('');
   const [shares, setShares] = useState('');
-  const [weekStr, setWeekStr] = useState('');
+  const [weekStr, setWeekStr] = useState(getCurrentWeekStr);
   const [color, setColor] = useState(DEFAULT_COLOR);
   const [inPlay, setInPlay] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setTicker('');
+      setBuyPrice('');
+      setShares('');
+      setWeekStr(getCurrentWeekStr());
+      setColor(DEFAULT_COLOR);
+      setInPlay(true);
+      setLoading(false);
+      setError(null);
+    }
+  }, [isOpen]);
 
   const hasShares = shares !== '' && parseFloat(shares) > 0;
 
