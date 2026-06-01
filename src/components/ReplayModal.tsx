@@ -74,6 +74,7 @@ export function ReplayModal({ positions, darkHorse, onClose, weekKey }: Props) {
           const replayRes = await fetch(`/api/replay/${weekKey}`, {
             headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
           });
+          if (replayRes.status === 404) throw new Error(`Ingen posisjoner lagret for ${weekKey} — replay fungerer fra W23 og fremover.`);
           if (!replayRes.ok) throw new Error('Could not load replay data');
           const replayData = await replayRes.json();
           resolvedPos = replayData.positions;

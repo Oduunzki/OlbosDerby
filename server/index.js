@@ -319,6 +319,19 @@ app.post('/api/betting/admin/reset-balances', requireAuth, async (req, res) => {
   }
 });
 
+// Admin: seed positions for a past week (for backfilling)
+app.post('/api/betting/admin/seed-positions', requireAuth, async (req, res) => {
+  try {
+    const { weekKey, stocks, shorts, darkHorse } = req.body;
+    if (!weekKey) return res.status(400).json({ error: 'weekKey required' });
+    const state = await db.getState();
+    await db.saveWeekPositions(weekKey, state.seasonId, stocks ?? [], shorts ?? [], darkHorse ?? null);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // Manual resolve (admin override — picks winners explicitly or auto-detects)
 app.post('/api/betting/admin/resolve', requireAuth, async (req, res) => {
   try {
