@@ -1,59 +1,8 @@
 {
   "darkHorse": {
-    "pctPerWeek": 7,
-    "startDate": "2026-05-22",
+    "pctPerWeek": 7.5,
+    "startDate": "2026-06-01",
     "label": "Dark Horse"
   },
-  "positions": [
-    {
-      "id": "hele-short",
-      "ticker": "HELE",
-      "yahooSymbol": "HELE",
-      "buyPrice": 25.65,
-      "buyDate": "2026-05-22",
-      "currency": "USD",
-      "color": "#a855f7",
-      "shares": 0
-    },
-    {
-      "id": "aeo-short",
-      "ticker": "AEO",
-      "yahooSymbol": "AEO",
-      "buyPrice": 16.53,
-      "buyDate": "2026-05-22",
-      "currency": "USD",
-      "color": "#f43f5e",
-      "shares": 0
-    },
-    {
-      "id": "kss-short",
-      "ticker": "KSS",
-      "yahooSymbol": "KSS",
-      "buyPrice": 13.06,
-      "buyDate": "2026-05-22",
-      "currency": "USD",
-      "color": "#fb923c",
-      "shares": 0
-    },
-    {
-      "id": "amr-short",
-      "ticker": "AMR",
-      "yahooSymbol": "AMR",
-      "buyPrice": 175.30,
-      "buyDate": "2026-05-22",
-      "currency": "USD",
-      "color": "#f59e0b",
-      "shares": 0
-    },
-    {
-      "id": "leg-short",
-      "ticker": "LEG",
-      "yahooSymbol": "LEG",
-      "buyPrice": 9.99,
-      "buyDate": "2026-05-22",
-      "currency": "USD",
-      "color": "#38bdf8",
-      "shares": 0
-    }
-  ]
+  "positions": []
 }
