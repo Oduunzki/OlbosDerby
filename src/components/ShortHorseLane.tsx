@@ -152,6 +152,19 @@ export function ShortHorseLane({ stock, currentPrice, tickChange, darkHorse, ran
     eventTimerRef.current = setTimeout(() => setEventComment(null), 4000);
   }
 
+  async function handleToggleInPlay() {
+    if (!authToken || !onAction) return;
+    setActionLoading(true);
+    await fetch(`/api/positions/${stock.id}/in-play`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ inPlay: stock.inPlay === false }),
+    });
+    setActionLoading(false);
+    setMenuOpen(false);
+    onAction();
+  }
+
   async function handleSell() {
     if (!authToken || !onAction || currentPrice == null) return;
     setActionLoading(true);
@@ -281,6 +294,24 @@ export function ShortHorseLane({ stock, currentPrice, tickChange, darkHorse, ran
                   padding: '6px', zIndex: 50, minWidth: '180px',
                   boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
                 }}>
+                  {/* Toggle inPlay */}
+                  <button
+                    onClick={handleToggleInPlay}
+                    disabled={actionLoading}
+                    style={{
+                      display: 'block', width: '100%', textAlign: 'left',
+                      padding: '8px 12px', borderRadius: '7px', cursor: 'pointer',
+                      background: 'none', border: 'none',
+                      fontFamily: 'Fira Code, monospace', fontSize: '12px',
+                      color: isObs ? '#86EFAC' : '#a78bfa',
+                      transition: 'background 0.15s',
+                    }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = isObs ? '#0a1e10' : '#1a1030'; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
+                  >
+                    {isObs ? '⚡ Gjør skarp' : '👁 Sett som obs'}
+                  </button>
+
                   {/* Sell — only if not already sold and price available */}
                   {!isSold && currentPrice != null && (
                     <button

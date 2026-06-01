@@ -594,6 +594,10 @@ export async function sellPosition(id, soldPrice) {
   await pool.query('UPDATE positions SET sold_price = $1 WHERE id = $2', [soldPrice, id]);
 }
 
+export async function setInPlay(id, inPlay) {
+  await pool.query('UPDATE positions SET in_play = $1 WHERE id = $2', [inPlay, id]);
+}
+
 export async function addPosition({ id, ticker, buyPrice, shares, deadline, color, inPlay }) {
   await pool.query(
     `INSERT INTO positions (id, ticker, buy_price, shares, deadline, color, in_play)

@@ -229,6 +229,31 @@ app.post('/api/positions', requireAuth, async (req, res) => {
   }
 });
 
+app.patch('/api/positions/:id/in-play', requireAuth, async (req, res) => {
+  try {
+    const inPlay = req.body.inPlay !== false;
+    if (db.isDbAvailable()) {
+      await db.setInPlay(req.params.id, inPlay);
+      const positions = await db.getPositions();
+      const state = await db.getState();
+      const { shorts, darkHorse } = loadCurrentPositions();
+      await db.saveWeekPositions(state.weekKey, state.seasonId, positions, shorts, darkHorse);
+    } else {
+      const stocks = readStocksJson().map(s =>
+        s.id === req.params.id ? { ...s, ...(inPlay ? {} : { inPlay: false }), ...(!inPlay ? {} : { inPlay: undefined }) } : s
+      );
+      // Clean up undefined inPlay (means true/default)
+      writeStocksJson(stocks.map(s => {
+        if (s.inPlay === undefined || s.inPlay === true) { const { inPlay: _, ...rest } = s; return rest; }
+        return s;
+      }));
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 app.patch('/api/positions/:id/sell', requireAuth, async (req, res) => {
   try {
     const { soldPrice } = req.body;
