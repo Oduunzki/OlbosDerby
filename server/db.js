@@ -116,6 +116,11 @@ export async function initSchema() {
     ALTER TABLE week_positions ADD COLUMN IF NOT EXISTS dark_horse JSONB;
   `);
 
+  // Migrate: add sold_price column to positions
+  await pool.query(`
+    ALTER TABLE positions ADD COLUMN IF NOT EXISTS sold_price NUMERIC(12,4);
+  `);
+
   // Seed fixed users (upsert PIN hash so it updates if changed)
   for (const u of USERS) {
     await pool.query(
@@ -581,7 +586,12 @@ export async function getPositions() {
     deadline: r.deadline,
     color: r.color,
     inPlay: r.in_play,
+    ...(r.sold_price != null ? { soldPrice: parseFloat(r.sold_price) } : {}),
   }));
+}
+
+export async function sellPosition(id, soldPrice) {
+  await pool.query('UPDATE positions SET sold_price = $1 WHERE id = $2', [soldPrice, id]);
 }
 
 export async function addPosition({ id, ticker, buyPrice, shares, deadline, color, inPlay }) {

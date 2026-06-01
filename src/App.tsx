@@ -259,9 +259,10 @@ export default function App() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {[...(stocksAsShorts.length > 0 ? stocksAsShorts : shortPositions)]
                 .sort((a, b) => {
-                  const pa = prices[a.yahooSymbol] != null ? (prices[a.yahooSymbol]! - a.buyPrice) / a.buyPrice : -Infinity;
-                  const pb = prices[b.yahooSymbol] != null ? (prices[b.yahooSymbol]! - b.buyPrice) / b.buyPrice : -Infinity;
-                  return pb - pa;
+                  const ep = (s: typeof stocksAsShorts[number]) => s.soldPrice ?? prices[s.yahooSymbol] ?? null;
+                  const pa = ep(a); const ga = pa != null ? (pa - a.buyPrice) / a.buyPrice : -Infinity;
+                  const pb = ep(b); const gb = pb != null ? (pb - b.buyPrice) / b.buyPrice : -Infinity;
+                  return gb - ga;
                 })
                 .map((stock, idx) => (
                   <ShortHorseLane
@@ -272,6 +273,8 @@ export default function App() {
                     darkHorse={darkHorse}
                     rank={idx + 1}
                     isLong={stocksAsShorts.length > 0}
+                    authToken={authToken ?? undefined}
+                    onAction={fetchPositions}
                   />
                 ))}
             </div>

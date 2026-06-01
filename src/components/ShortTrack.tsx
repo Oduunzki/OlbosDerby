@@ -113,8 +113,10 @@ export function ShortTrack({ positions, prices, tickChanges, darkHorse }: Props)
 
   const statPositions = includeObs ? positions : positions.filter(s => s.inPlay !== false);
 
+  const effectivePrice = (s: typeof positions[number]) => s.soldPrice ?? prices[s.yahooSymbol] ?? null;
+
   const gains = statPositions.map(s => {
-    const p = prices[s.yahooSymbol];
+    const p = effectivePrice(s);
     return p != null ? (p - s.buyPrice) / s.buyPrice : null;
   }).filter((g): g is number => g != null);
 
@@ -127,14 +129,14 @@ export function ShortTrack({ positions, prices, tickChanges, darkHorse }: Props)
 
   const bestStock = bestGain != null
     ? statPositions.find(s => {
-        const p = prices[s.yahooSymbol];
+        const p = effectivePrice(s);
         return p != null && Math.abs((p - s.buyPrice) / s.buyPrice - bestGain!) < 0.0001;
       })
     : null;
 
   const worstStock = worstGain != null
     ? statPositions.find(s => {
-        const p = prices[s.yahooSymbol];
+        const p = effectivePrice(s);
         return p != null && Math.abs((p - s.buyPrice) / s.buyPrice - worstGain!) < 0.0001;
       })
     : null;
@@ -142,7 +144,7 @@ export function ShortTrack({ positions, prices, tickChanges, darkHorse }: Props)
   const hasShares  = statPositions.some(s => (s.shares ?? 0) > 0);
   const totalCost  = hasShares ? statPositions.reduce((sum, s) => sum + (s.shares ?? 0) * s.buyPrice, 0) : null;
   const totalNow   = hasShares ? statPositions.reduce((sum, s) => {
-    const p = prices[s.yahooSymbol];
+    const p = effectivePrice(s);
     return sum + (s.shares ?? 0) * (p ?? s.buyPrice);
   }, 0) : null;
   const totalPnl   = totalCost != null && totalNow != null ? totalNow - totalCost : null;
@@ -150,9 +152,9 @@ export function ShortTrack({ positions, prices, tickChanges, darkHorse }: Props)
   const totalPnlNok = totalPnl != null && usdNok != null ? totalPnl * usdNok : null;
 
   const ranked = [...positions].sort((a, b) => {
-    const pa = prices[a.yahooSymbol] != null ? (prices[a.yahooSymbol]! - a.buyPrice) / a.buyPrice : -Infinity;
-    const pb = prices[b.yahooSymbol] != null ? (prices[b.yahooSymbol]! - b.buyPrice) / b.buyPrice : -Infinity;
-    return pb - pa;
+    const pa = effectivePrice(a); const ga = pa != null ? (pa - a.buyPrice) / a.buyPrice : -Infinity;
+    const pb = effectivePrice(b); const gb = pb != null ? (pb - b.buyPrice) / b.buyPrice : -Infinity;
+    return gb - ga;
   });
 
   // Track scale — finish line is the weekly target (+7%), with room for overachievers
@@ -301,13 +303,14 @@ export function ShortTrack({ positions, prices, tickChanges, darkHorse }: Props)
 
           {/* Lane rows */}
           {ranked.map((stock, i) => {
-            const cp      = prices[stock.yahooSymbol] ?? null;
+            const cp      = stock.soldPrice ?? prices[stock.yahooSymbol] ?? null;
             const prog    = cp != null ? (cp - stock.buyPrice) / stock.buyPrice : null;
             const hX      = prog != null ? toX(clampV(prog)) : null;
             const ahead   = prog != null ? prog - dhProgress : null;
             const isWin   = ahead != null && ahead >= 0;
             const isNeg   = prog != null && prog < 0;
             const isObs   = stock.inPlay === false;
+            const isSold  = stock.soldPrice != null;
 
             return (
               <div key={stock.id} style={{
@@ -315,7 +318,7 @@ export function ShortTrack({ positions, prices, tickChanges, darkHorse }: Props)
                 position: 'relative',
                 background: LANE_BG[i % LANE_BG.length],
                 borderBottom: '1px solid #101808',
-                opacity: isObs ? 0.45 : 1,
+                opacity: isObs ? 0.45 : isSold ? 0.6 : 1,
               }}>
                 {/* Subtle turf grain */}
                 <div style={{
@@ -340,9 +343,8 @@ export function ShortTrack({ positions, prices, tickChanges, darkHorse }: Props)
                   zIndex: 2, userSelect: 'none',
                 }}>
                   {stock.ticker}
-                  {isObs && (
-                    <span style={{ fontSize: '10px', opacity: 0.7, fontFamily: 'sans-serif' }} title="Observasjon — teller ikke i statistikk">👁</span>
-                  )}
+                  {isObs && <span style={{ fontSize: '10px', opacity: 0.7, fontFamily: 'sans-serif' }} title="Observasjon">👁</span>}
+                  {isSold && <span style={{ fontSize: '9px', fontFamily: 'Fira Code, monospace', color: GOLD, opacity: 0.8 }}>SOLD</span>}
                 </div>
 
                 {/* 5-day section labels (faded % in background) */}

@@ -7,6 +7,7 @@ export interface Stock {
   deadline: string;
   color: string;
   inPlay?: boolean;
+  soldPrice?: number;
 }
 
 export interface StockWithPrice extends Stock {
@@ -24,6 +25,7 @@ export interface ShortStock {
   color: string;
   shares?: number;
   inPlay?: boolean;
+  soldPrice?: number;
 }
 
 export interface DarkHorseConfig {

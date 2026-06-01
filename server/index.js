@@ -229,6 +229,30 @@ app.post('/api/positions', requireAuth, async (req, res) => {
   }
 });
 
+app.patch('/api/positions/:id/sell', requireAuth, async (req, res) => {
+  try {
+    const { soldPrice } = req.body;
+    if (!soldPrice || isNaN(parseFloat(soldPrice))) {
+      return res.status(400).json({ error: 'soldPrice required' });
+    }
+    if (db.isDbAvailable()) {
+      await db.sellPosition(req.params.id, parseFloat(soldPrice));
+      const positions = await db.getPositions();
+      const state = await db.getState();
+      const { shorts, darkHorse } = loadCurrentPositions();
+      await db.saveWeekPositions(state.weekKey, state.seasonId, positions, shorts, darkHorse);
+    } else {
+      const stocks = readStocksJson().map(s =>
+        s.id === req.params.id ? { ...s, soldPrice: parseFloat(soldPrice) } : s
+      );
+      writeStocksJson(stocks);
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 app.delete('/api/positions/:id', requireAuth, async (req, res) => {
   try {
     if (db.isDbAvailable()) {
