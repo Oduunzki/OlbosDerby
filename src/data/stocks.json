@@ -1,1 +1,10 @@
-[]
+[
+  {
+    "id": "psfe-1780297660678",
+    "ticker": "PSFE",
+    "buyPrice": 7.73,
+    "shares": 69,
+    "deadline": "2026-06-04",
+    "color": "#22C55E"
+  }
+]
