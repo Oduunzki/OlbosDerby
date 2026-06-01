@@ -391,12 +391,24 @@ export function BettingPanel({ shortPositions, darkHorse, currentUserId, authTok
             </p>
           )}
           {!showResolve ? (
-            <button
-              onClick={openResolve}
-              style={{ background: 'none', border: '1px solid #2a4030', borderRadius: '8px', padding: '6px 14px', cursor: 'pointer', color: '#4a6050', fontSize: '11px', fontFamily: 'Fira Code, monospace', letterSpacing: '0.06em' }}
-            >
-              ⚙ Løs forrige uke
-            </button>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button
+                onClick={openResolve}
+                style={{ background: 'none', border: '1px solid #2a4030', borderRadius: '8px', padding: '6px 14px', cursor: 'pointer', color: '#4a6050', fontSize: '11px', fontFamily: 'Fira Code, monospace', letterSpacing: '0.06em' }}
+              >
+                ⚙ Løs forrige uke
+              </button>
+              <button
+                onClick={async () => {
+                  if (!confirm('Reset alle til 250 kr?')) return;
+                  const res = await fetch('/api/betting/admin/reset-balances', { method: 'POST', headers: authHeaders });
+                  if (res.ok) { fetchState(); } else { alert('Feil ved reset'); }
+                }}
+                style={{ background: 'none', border: '1px solid #3a1818', borderRadius: '8px', padding: '6px 14px', cursor: 'pointer', color: '#6a3a3a', fontSize: '11px', fontFamily: 'Fira Code, monospace', letterSpacing: '0.06em' }}
+              >
+                ↺ Reset 250 kr
+              </button>
+            </div>
           ) : (
             <div style={{ background: '#09120a', border: '1px solid #1e3525', borderRadius: '10px', padding: '14px' }}>
               <p style={{ ...labelStyle, marginBottom: '10px' }}>Løs {resolveWeekKey}</p>

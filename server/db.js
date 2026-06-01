@@ -368,6 +368,15 @@ export async function resolveWeek(weekKey, seasonId, winningHorses) {
   }
 }
 
+export async function resetBalances(seasonId) {
+  for (const u of USERS) {
+    await pool.query(
+      'UPDATE balances SET amount = 250 WHERE user_id = $1 AND season_id = $2',
+      [u.id, seasonId]
+    );
+  }
+}
+
 export async function getWeekResult(weekKey, seasonId) {
   const res = await pool.query(
     'SELECT * FROM week_results WHERE week_key = $1 AND season_id = $2',

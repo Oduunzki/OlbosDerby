@@ -304,6 +304,17 @@ app.delete('/api/betting/bet/:id', requireAuth, async (req, res) => {
   }
 });
 
+// Admin: reset all balances to 250
+app.post('/api/betting/admin/reset-balances', requireAuth, async (req, res) => {
+  try {
+    const state = await db.getState();
+    await db.resetBalances(state.seasonId);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // Manual resolve (admin override — picks winners explicitly or auto-detects)
 app.post('/api/betting/admin/resolve', requireAuth, async (req, res) => {
   try {
