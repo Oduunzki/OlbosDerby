@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useMarketOpenCountdown } from './hooks/useMarketOpenCountdown';
+import { useSoundEngine } from './hooks/useSoundEngine';
+import { SoundContext } from './context/SoundContext';
 import stocksData from './data/stocks.json';
 import shortsData from './data/shorts.json';
 import type { Stock, ShortStock, DarkHorseConfig } from './types';
 import { useStockPrices } from './hooks/useStockPrices';
-import { RaceTrack } from './components/RaceTrack';
-import { Scoreboard } from './components/Scoreboard';
 import { ShortTrack } from './components/ShortTrack';
 import { ShortHorseLane } from './components/ShortHorseLane';
 import { BettingWindow } from './components/BettingWindow';
@@ -16,6 +16,16 @@ import { CountdownOverlay } from './components/CountdownOverlay';
 const stocks: Stock[] = stocksData as Stock[];
 const shortPositions: ShortStock[] = (shortsData as { darkHorse: DarkHorseConfig; positions: ShortStock[] }).positions;
 const darkHorse: DarkHorseConfig = (shortsData as { darkHorse: DarkHorseConfig; positions: ShortStock[] }).darkHorse;
+const stocksAsShorts: ShortStock[] = stocks.map(s => ({
+  id: s.id,
+  ticker: s.ticker,
+  yahooSymbol: s.ticker,
+  buyPrice: s.buyPrice,
+  buyDate: darkHorse.startDate,
+  currency: 'USD',
+  color: s.color,
+  shares: s.shares,
+}));
 
 function formatTime(date: Date, timeZone?: string): string {
   return date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone });
@@ -35,6 +45,7 @@ export default function App() {
   const { show: showCountdown, dismiss: dismissCountdown } = useMarketOpenCountdown();
   const [authToken, setAuthToken] = useState<string | null>(() => localStorage.getItem('auth-token'));
   const [authUserId, setAuthUserId] = useState<string | null>(() => localStorage.getItem('auth-user-id'));
+  const { playSound, muted, toggleMute } = useSoundEngine();
 
   // Validate stored session on load
   useEffect(() => {
@@ -68,12 +79,18 @@ export default function App() {
   ];
   const { prices, tickChanges, lastUpdated, isMarketOpen, loading, error } = useStockPrices(allTickers);
   const now = useNow();
+  const prevMarketOpen = useRef(isMarketOpen);
+  useEffect(() => {
+    if (!prevMarketOpen.current && isMarketOpen) playSound('market-open');
+    prevMarketOpen.current = isMarketOpen;
+  }, [isMarketOpen, playSound]);
 
   if (!authToken || !authUserId) {
     return <LoginScreen onLogin={handleLogin} />;
   }
 
   return (
+    <SoundContext.Provider value={{ playSound, muted, toggleMute }}>
     <div style={{ minHeight: '100vh', background: '#07100a' }}>
 
       {/* ── Header ── */}
@@ -149,6 +166,21 @@ export default function App() {
             )}
 
             <button
+              onClick={toggleMute}
+              title={muted ? 'Slå på lyd' : 'Slå av lyd'}
+              style={{
+                background: 'none', border: '1px solid #1a3020', borderRadius: '8px',
+                padding: '4px 8px', cursor: 'pointer', color: muted ? '#3a5040' : '#72c48a',
+                fontSize: '14px', lineHeight: 1,
+                transition: 'color 0.15s, border-color 0.15s',
+              }}
+              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = '#2a4a30'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = '#1a3020'; }}
+            >
+              {muted ? '🔇' : '🔊'}
+            </button>
+
+            <button
               onClick={handleLogout}
               title="Log out"
               style={{
@@ -171,14 +203,14 @@ export default function App() {
 
         {/* Race sections wrapped together so the countdown overlay covers both */}
         <div style={{ position: 'relative', marginBottom: '48px' }}>
-          {stocks.length > 0 && (
+          {stocksAsShorts.length > 0 && (
             <section style={{ marginBottom: '48px' }}>
-              <h2 style={{
-                fontFamily: "'Playfair Display', serif", color: '#c8a040',
-                fontSize: '18px', margin: '0 0 20px',
-              }}>Long Positions</h2>
-              <RaceTrack stocks={stocks} prices={prices} tickChanges={tickChanges} isMarketOpen={isMarketOpen} />
-              <Scoreboard stocks={stocks} prices={prices} />
+              <ShortTrack
+                positions={stocksAsShorts}
+                prices={prices}
+                tickChanges={tickChanges}
+                darkHorse={darkHorse}
+              />
             </section>
           )}
 
@@ -207,13 +239,13 @@ export default function App() {
         </section>
 
         {/* Horse Details */}
-        {shortPositions.length > 0 && (
+        {(stocksAsShorts.length > 0 || shortPositions.length > 0) && (
           <section style={{ marginTop: '48px' }}>
             <h2 style={{ fontFamily: "'Playfair Display', serif", color: '#c8a040', fontSize: '18px', margin: '0 0 20px' }}>
               Horse Details
             </h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {[...shortPositions]
+              {[...(stocksAsShorts.length > 0 ? stocksAsShorts : shortPositions)]
                 .sort((a, b) => {
                   const pa = prices[a.yahooSymbol] != null ? (prices[a.yahooSymbol]! - a.buyPrice) / a.buyPrice : -Infinity;
                   const pb = prices[b.yahooSymbol] != null ? (prices[b.yahooSymbol]! - b.buyPrice) / b.buyPrice : -Infinity;
@@ -227,6 +259,7 @@ export default function App() {
                     tickChange={tickChanges[stock.yahooSymbol] ?? null}
                     darkHorse={darkHorse}
                     rank={idx + 1}
+                    isLong={stocksAsShorts.length > 0}
                   />
                 ))}
             </div>
@@ -269,5 +302,6 @@ export default function App() {
 
       <BettingWindow isOpen={bettingOpen} onClose={() => setBettingOpen(false)} />
     </div>
+    </SoundContext.Provider>
   );
 }

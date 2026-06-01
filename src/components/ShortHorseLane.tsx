@@ -1,4 +1,6 @@
+import { useState, useEffect, useRef } from 'react';
 import type { ShortStock, DarkHorseConfig } from '../types';
+import { useSoundContext } from '../context/SoundContext';
 
 interface Props {
   stock: ShortStock;
@@ -6,6 +8,7 @@ interface Props {
   tickChange: number | null;
   darkHorse: DarkHorseConfig;
   rank: number;
+  isLong?: boolean;
 }
 
 function getDarkHorseProgress(config: DarkHorseConfig): number {
@@ -22,8 +25,64 @@ function fmt(n: number, d = 2): string {
 
 const PACE = '#9977cc';
 
-export function ShortHorseLane({ stock, currentPrice, tickChange, darkHorse, rank }: Props) {
+const SHORT_COMMENTARY: Record<string, string[]> = {
+  beating_big: [
+    'PUMP. Dette er det vi trente for.',
+    'Dark Horse svettet. Vi ikke.',
+    'Foran tempoet og akselererer! 🚀',
+    'Kjøperne gir seg. Short lever.',
+  ],
+  beating: [
+    'Foran Dark Horse-rytmet!',
+    'Holder ledelsen. Hold nå.',
+    'Positiv progresjon. Nyte øyeblikket.',
+    'Kort foran. Godt foran.',
+  ],
+  at_pace: [
+    'Jevnt med Dark Horse. Skill the difference.',
+    'Akkurat på plan. Spennende.',
+    'Tett løp. Kan gå begge veier.',
+  ],
+  behind: [
+    'Litt bak Dark Horse-tempoet...',
+    'Dark Horse holder følge. Irriterende.',
+    'Bak rytmet. Men det kan snu.',
+    'Kurs holder seg. Ikke ideelt.',
+  ],
+  behind_big: [
+    'Dark Horse vinner dette heat. Så langt.',
+    'Betydelig bak. Kurset vil ikke synke.',
+    'Vi er optimister. Vi er også realistister.',
+    'Stop-loss er fremdeles en mulighet. Sier vi forsiktig.',
+  ],
+};
+
+function simpleHash(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
+function getShortCommentary(ahead: number | null, ticker: string): string {
+  if (ahead == null) return 'Henter data...';
+  const today = new Date().toDateString();
+  const seed = simpleHash(ticker + today);
+
+  let pool: string[];
+  if (ahead >= 0.05)        pool = SHORT_COMMENTARY.beating_big;
+  else if (ahead >= 0.005)  pool = SHORT_COMMENTARY.beating;
+  else if (ahead >= -0.005) pool = SHORT_COMMENTARY.at_pace;
+  else if (ahead >= -0.05)  pool = SHORT_COMMENTARY.behind;
+  else                      pool = SHORT_COMMENTARY.behind_big;
+
+  return pool[seed % pool.length];
+}
+
+export function ShortHorseLane({ stock, currentPrice, tickChange, darkHorse, rank, isLong = false }: Props) {
   const loading = currentPrice == null;
+  const { playSound } = useSoundContext();
+  const [eventComment, setEventComment] = useState<string | null>(null);
+  const eventTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dhProgress = getDarkHorseProgress(darkHorse);
 
   const actualProgress = currentPrice != null
@@ -43,6 +102,32 @@ export function ShortHorseLane({ stock, currentPrice, tickChange, darkHorse, ran
   const gainColor   = isBeating ? '#72c48a' : '#c47878';
   const badgeBg     = isBeating ? '#0e2418' : '#241010';
   const badgeBorder = isBeating ? '#254a30' : '#4a2020';
+
+  // Fire sounds on tick
+  useEffect(() => {
+    if (tickChange == null || tickChange === 0 || currentPrice == null) return;
+    const pct = Math.abs(tickChange / currentPrice) * 100;
+    const isBig = pct >= 0.5;
+    const goodMove = isLong ? tickChange > 0 : tickChange < 0;
+    if (goodMove) {
+      playSound(isBig ? 'big-up' : 'tick-up');
+      if (isBig) showEventComment(isLong
+        ? `${stock.ticker} pumper! +${pct.toFixed(2)}%. 🚀`
+        : `${stock.ticker} drar ned! ${pct.toFixed(2)}% drop. 🎯`);
+    } else {
+      playSound(isBig ? 'big-down' : 'tick-down');
+      if (isBig) showEventComment(isLong
+        ? `${stock.ticker} synker. ${pct.toFixed(2)}% drop. Ikke ideelt.`
+        : `${stock.ticker} stiger. +${pct.toFixed(2)}%. Ikke ideelt.`);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tickChange]);
+
+  function showEventComment(msg: string) {
+    if (eventTimerRef.current) clearTimeout(eventTimerRef.current);
+    setEventComment(msg);
+    eventTimerRef.current = setTimeout(() => setEventComment(null), 4000);
+  }
 
   return (
     <div style={{
@@ -169,6 +254,19 @@ export function ShortHorseLane({ stock, currentPrice, tickChange, darkHorse, ran
           {stock.buyDate}
         </span>
       </div>
+
+      {/* Commentary */}
+      <p
+        key={eventComment ?? 'static'}
+        className="commentary-change"
+        style={{
+          margin: '8px 0 0',
+          fontSize: '11px', fontStyle: 'italic', textAlign: 'center',
+          color: eventComment ? '#c8a040' : '#2e4a38',
+        }}
+      >
+        {eventComment ?? getShortCommentary(ahead, stock.ticker)}
+      </p>
     </div>
   );
 }
