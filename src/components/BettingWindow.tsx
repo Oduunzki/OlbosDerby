@@ -42,17 +42,19 @@ const PRESET_COLORS = [
 const DEFAULT_COLOR = '#22C55E';
 
 export function BettingWindow({ isOpen, onClose, authToken, raceId, raceEndDate, onHorseAdded }: Props) {
-  const [mode,      setMode]      = useState<'single' | 'csv'>('single');
-  const [ticker,    setTicker]    = useState('');
-  const [buyPrice,  setBuyPrice]  = useState('');
-  const [shares,    setShares]    = useState('');
-  const [nokAmount, setNokAmount] = useState('5000');
-  const [weekStr,   setWeekStr]   = useState(getCurrentWeekStr);
-  const [color,     setColor]     = useState(DEFAULT_COLOR);
-  const [inPlay,    setInPlay]    = useState(true);
-  const [loading,   setLoading]   = useState(false);
-  const [error,     setError]     = useState<string | null>(null);
-  const [usdnok,    setUsdnok]    = useState<number | null>(null);
+  const [mode,           setMode]           = useState<'single' | 'csv'>('single');
+  const [ticker,         setTicker]         = useState('');
+  const [buyPrice,       setBuyPrice]       = useState('');
+  const [shares,         setShares]         = useState('');
+  const [nokAmount,      setNokAmount]      = useState('5000');
+  const [weekStr,        setWeekStr]        = useState(getCurrentWeekStr);
+  const [color,          setColor]          = useState(DEFAULT_COLOR);
+  const [inPlay,         setInPlay]         = useState(true);
+  const [loading,        setLoading]        = useState(false);
+  const [error,          setError]          = useState<string | null>(null);
+  const [usdnok,         setUsdnok]         = useState<number | null>(null);
+  const [fetchingPrice,  setFetchingPrice]  = useState(false);
+  const [priceSuggestion,setPriceSuggestion]= useState<number | null>(null);
 
   // Fetch USDNOK rate once on mount
   useEffect(() => {
@@ -73,8 +75,32 @@ export function BettingWindow({ isOpen, onClose, authToken, raceId, raceEndDate,
       setNokAmount('5000'); setWeekStr(getCurrentWeekStr());
       setColor(DEFAULT_COLOR); setInPlay(true);
       setLoading(false); setError(null);
+      setPriceSuggestion(null);
     }
   }, [isOpen]);
+
+  // Debounced Yahoo price fetch when ticker changes
+  useEffect(() => {
+    const clean = ticker.trim().toUpperCase();
+    if (clean.length < 1) { setPriceSuggestion(null); setFetchingPrice(false); return; }
+    setFetchingPrice(true);
+    setPriceSuggestion(null);
+    const timer = setTimeout(() => {
+      fetch(`/api/prices?tickers=${encodeURIComponent(clean)}`)
+        .then(r => r.json())
+        .then((data: Record<string, number | null>) => {
+          const price = data[clean];
+          if (typeof price === 'number' && price > 0) {
+            setPriceSuggestion(price);
+            // Auto-fill only if the price field is still empty
+            setBuyPrice(prev => prev === '' ? price.toFixed(2) : prev);
+          }
+        })
+        .catch(() => {})
+        .finally(() => setFetchingPrice(false));
+    }, 600);
+    return () => { clearTimeout(timer); setFetchingPrice(false); };
+  }, [ticker]);
 
   // NOK → shares (user typed a NOK amount)
   const handleNokChange = (val: string) => {
@@ -216,7 +242,17 @@ export function BettingWindow({ isOpen, onClose, authToken, raceId, raceEndDate,
 
           {/* Ticker */}
           <div>
-            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Ticker Symbol</label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Ticker Symbol</label>
+              {fetchingPrice && (
+                <span className="text-xs text-slate-600 font-mono animate-pulse">fetching price…</span>
+              )}
+              {!fetchingPrice && priceSuggestion !== null && (
+                <span className="text-xs text-emerald-600 font-mono">
+                  Yahoo: ${priceSuggestion.toFixed(2)}
+                </span>
+              )}
+            </div>
             <input
               type="text" value={ticker} onChange={e => setTicker(e.target.value.toUpperCase())}
               placeholder="e.g. AAPL" maxLength={10} autoFocus
@@ -233,11 +269,35 @@ export function BettingWindow({ isOpen, onClose, authToken, raceId, raceEndDate,
                 placeholder="0.00" step="0.01" min="0"
                 className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 font-mono text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 transition-colors cursor-text"
               />
+              {/* Suggestion differs from typed value */}
+              {priceSuggestion !== null && buyPrice !== '' && parseFloat(buyPrice) !== priceSuggestion && (
+                <button
+                  onClick={() => setBuyPrice(priceSuggestion.toFixed(2))}
+                  className="mt-1 text-xs text-emerald-700 hover:text-emerald-500 transition-colors cursor-pointer font-mono"
+                >
+                  ↑ use ${priceSuggestion.toFixed(2)}
+                </button>
+              )}
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-                Shares
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Shares</label>
+                <button
+                  onClick={() => {
+                    const price = parseFloat(buyPrice);
+                    const nok   = parseFloat(nokAmount);
+                    if (price > 0 && usdnok && nok > 0) {
+                      const calc = Math.round(nok / (price * usdnok));
+                      handleSharesChange(String(Math.max(1, calc)));
+                    }
+                  }}
+                  disabled={!(parseFloat(buyPrice) > 0 && usdnok && parseFloat(nokAmount) > 0)}
+                  className="text-xs font-semibold px-2 py-0.5 rounded cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  style={{ background: '#0d2010', color: '#72c48a', border: '1px solid #1a3a20' }}
+                >
+                  Max
+                </button>
+              </div>
               <input
                 type="number" value={shares} onChange={e => handleSharesChange(e.target.value)}
                 placeholder="0" step="1" min="0"
