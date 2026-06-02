@@ -25,12 +25,32 @@ interface Props {
   onDone: () => void;
 }
 
+// RFC-4180 CSV parser — handles quoted fields containing commas
+function splitCSVLine(line: string): string[] {
+  const cols: string[] = [];
+  let cur = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      // doubled quote inside a quoted field = literal quote
+      if (inQuotes && line[i + 1] === '"') { cur += '"'; i++; }
+      else inQuotes = !inQuotes;
+    } else if (ch === ',' && !inQuotes) {
+      cols.push(cur); cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  cols.push(cur);
+  return cols;
+}
+
 function parseCSV(text: string, usdnok: number): CsvRow[] {
   const lines = text.trim().split('\n');
   if (lines.length < 2) return [];
 
-  // Handle potential \r\n line endings
-  const headers = lines[0].replace(/\r/g, '').split(',');
+  const headers = splitCSVLine(lines[0].replace(/\r/g, ''));
   const tickerIdx  = headers.indexOf('Ticker');
   const priceIdx   = headers.indexOf('PriceNow');
   const rankIdx    = headers.indexOf('Rank');
@@ -38,7 +58,7 @@ function parseCSV(text: string, usdnok: number): CsvRow[] {
 
   const rows: CsvRow[] = [];
   for (let i = 1; i < lines.length; i++) {
-    const cols = lines[i].replace(/\r/g, '').split(',');
+    const cols = splitCSVLine(lines[i].replace(/\r/g, ''));
     const ticker = cols[tickerIdx]?.trim();
     const price  = parseFloat(cols[priceIdx]);
     const rank   = rankIdx !== -1 ? parseInt(cols[rankIdx]) : i;
