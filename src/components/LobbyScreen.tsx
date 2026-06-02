@@ -268,6 +268,7 @@ interface CardProps {
 
 function RaceCard({ race, onEnter, onEdit, onDelete }: CardProps) {
   const [hovered,       setHovered]       = useState(false);
+  const [menuOpen,      setMenuOpen]      = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const isClosed = race.status === 'closed';
   const { label: countdown, urgent } = formatCountdown(race.end_date);
@@ -284,9 +285,38 @@ function RaceCard({ race, onEnter, onEdit, onDelete }: CardProps) {
         </button>
       </div>
     ) : (
-      <div style={{ position: 'absolute', top: '12px', right: '12px', display: 'flex', gap: '6px' }}>
-        <button onClick={e => { e.stopPropagation(); onEdit(); }} title="Edit" style={{ background: 'none', border: `1px solid ${BORDER}`, borderRadius: '7px', padding: '4px 7px', cursor: 'pointer', color: DIM, fontSize: '13px', lineHeight: 1, transition: 'all 0.12s' }} onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = GREEN; (e.currentTarget as HTMLButtonElement).style.borderColor = BORDER_HOVER; }} onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = DIM; (e.currentTarget as HTMLButtonElement).style.borderColor = BORDER; }}>✏️</button>
-        <button onClick={e => { e.stopPropagation(); setConfirmDelete(true); }} title="Delete" style={{ background: 'none', border: `1px solid ${BORDER}`, borderRadius: '7px', padding: '4px 7px', cursor: 'pointer', color: DIM, fontSize: '13px', lineHeight: 1, transition: 'all 0.12s' }} onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = '#c47878'; (e.currentTarget as HTMLButtonElement).style.borderColor = '#3a1818'; }} onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = DIM; (e.currentTarget as HTMLButtonElement).style.borderColor = BORDER; }}>🗑️</button>
+      <div style={{ position: 'absolute', top: '12px', right: '12px' }}>
+        <button
+          onClick={e => { e.stopPropagation(); setMenuOpen(v => !v); }}
+          style={{ background: 'none', border: `1px solid ${menuOpen ? BORDER_HOVER : BORDER}`, borderRadius: '7px', padding: '3px 9px', cursor: 'pointer', color: menuOpen ? GREEN : DIM, fontFamily: 'Inter, sans-serif', fontSize: '15px', fontWeight: 700, letterSpacing: '0.05em', lineHeight: 1, transition: 'all 0.12s' }}
+          onMouseEnter={e => { if (!menuOpen) { (e.currentTarget as HTMLButtonElement).style.color = GREEN; (e.currentTarget as HTMLButtonElement).style.borderColor = BORDER_HOVER; }}}
+          onMouseLeave={e => { if (!menuOpen) { (e.currentTarget as HTMLButtonElement).style.color = DIM; (e.currentTarget as HTMLButtonElement).style.borderColor = BORDER; }}}
+        >
+          •••
+        </button>
+        {menuOpen && (
+          <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 20, background: '#0e1e14', border: `1px solid ${BORDER_HOVER}`, borderRadius: '10px', overflow: 'hidden', boxShadow: '0 8px 28px rgba(0,0,0,0.5)', minWidth: '120px' }}>
+            <button
+              onClick={e => { e.stopPropagation(); setMenuOpen(false); onEdit(); }}
+              style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%', padding: '10px 14px', background: 'none', border: 'none', cursor: 'pointer', color: '#a0c8a8', fontFamily: 'Inter, sans-serif', fontSize: '13px', fontWeight: 500, textAlign: 'left', transition: 'background 0.1s' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#162a1c'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
+            >
+              <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M11 2.5l2.5 2.5-8 8H3v-2.5l8-8z"/></svg>
+              Edit
+            </button>
+            <div style={{ height: '1px', background: BORDER, margin: '0 8px' }} />
+            <button
+              onClick={e => { e.stopPropagation(); setMenuOpen(false); setConfirmDelete(true); }}
+              style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%', padding: '10px 14px', background: 'none', border: 'none', cursor: 'pointer', color: '#c47878', fontFamily: 'Inter, sans-serif', fontSize: '13px', fontWeight: 500, textAlign: 'left', transition: 'background 0.1s' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#1a0a0a'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
+            >
+              <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M3 4h10M6 4V2h4v2M5 4l.5 9h5l.5-9"/></svg>
+              Delete
+            </button>
+          </div>
+        )}
       </div>
     )
   );
@@ -294,7 +324,7 @@ function RaceCard({ race, onEnter, onEdit, onDelete }: CardProps) {
   return (
     <div
       onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => { setHovered(false); setConfirmDelete(false); }}
+      onMouseLeave={() => { setHovered(false); setConfirmDelete(false); setMenuOpen(false); }}
       style={{
         position: 'relative', cursor: isClosed ? 'default' : 'pointer',
         background: hovered && !isClosed ? CARD_HOVER : CARD,
@@ -310,7 +340,7 @@ function RaceCard({ race, onEnter, onEdit, onDelete }: CardProps) {
     >
       {controls}
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingRight: (!isClosed && !race.locked) ? '76px' : 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingRight: (!isClosed && !race.locked) ? '44px' : 0 }}>
         <div style={{ width: '44px', height: '44px', borderRadius: '12px', flexShrink: 0, background: 'linear-gradient(135deg, #162a1c, #0e1e12)', border: `1px solid ${BORDER_HOVER}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '22px' }}>
           {race.emoji}
         </div>
