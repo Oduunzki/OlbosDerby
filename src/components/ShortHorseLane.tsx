@@ -196,7 +196,7 @@ export function ShortHorseLane({ stock, currentPrice, tickChange, darkHorse, ran
       padding: '14px 18px',
       background: '#0d1c10',
       border: `1px solid ${isBeating ? '#1e3525' : '#2e1818'}`,
-      borderLeft: `3px solid ${stock.color}`,
+      borderLeft: `3px solid ${stock.color || '#4a5568'}`,
       borderRadius: '12px',
       opacity: isSold ? 0.7 : 1,
       position: 'relative',
@@ -211,8 +211,8 @@ export function ShortHorseLane({ stock, currentPrice, tickChange, darkHorse, ran
 
         <span style={{
           fontFamily: "'Playfair Display', serif", fontWeight: 700,
-          color: stock.color, fontSize: '18px',
-          textShadow: `0 0 18px ${stock.color}44`,
+          color: stock.color || '#4a5568', fontSize: '18px',
+          textShadow: `0 0 18px ${(stock.color || '#4a5568')}44`,
           minWidth: '54px',
         }}>{stock.ticker}</span>
 
