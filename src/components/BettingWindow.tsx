@@ -10,21 +10,6 @@ function getCurrentWeekStr(): string {
   return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
 }
 
-interface Props {
-  isOpen: boolean;
-  onClose: () => void;
-  authToken: string;
-  raceId: string | null;
-  onHorseAdded: () => void;
-}
-
-const PRESET_COLORS = [
-  '#22C55E', '#EF4444', '#3B82F6', '#F59E0B',
-  '#8B5CF6', '#EC4899', '#06B6D4', '#F97316',
-];
-
-const DEFAULT_COLOR = '#22C55E';
-
 function weekToFriday(weekStr: string): string {
   const [yearStr, weekPart] = weekStr.split('-W');
   const year = parseInt(yearStr, 10);
@@ -40,35 +25,86 @@ function weekToFriday(weekStr: string): string {
   return friday.toISOString().split('T')[0];
 }
 
-export function BettingWindow({ isOpen, onClose, authToken, raceId, onHorseAdded }: Props) {
-  const [ticker, setTicker] = useState('');
-  const [buyPrice, setBuyPrice] = useState('');
-  const [shares, setShares] = useState('');
-  const [weekStr, setWeekStr] = useState(getCurrentWeekStr);
-  const [color, setColor] = useState(DEFAULT_COLOR);
-  const [inPlay, setInPlay] = useState(true);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+interface Props {
+  isOpen: boolean;
+  onClose: () => void;
+  authToken: string;
+  raceId: string | null;
+  raceEndDate: string | null;
+  onHorseAdded: () => void;
+}
 
+const PRESET_COLORS = [
+  '#22C55E', '#EF4444', '#3B82F6', '#F59E0B',
+  '#8B5CF6', '#EC4899', '#06B6D4', '#F97316',
+];
+const DEFAULT_COLOR = '#22C55E';
+
+export function BettingWindow({ isOpen, onClose, authToken, raceId, raceEndDate, onHorseAdded }: Props) {
+  const [ticker,    setTicker]    = useState('');
+  const [buyPrice,  setBuyPrice]  = useState('');
+  const [shares,    setShares]    = useState('');
+  const [nokAmount, setNokAmount] = useState('5000');
+  const [weekStr,   setWeekStr]   = useState(getCurrentWeekStr);
+  const [color,     setColor]     = useState(DEFAULT_COLOR);
+  const [inPlay,    setInPlay]    = useState(true);
+  const [loading,   setLoading]   = useState(false);
+  const [error,     setError]     = useState<string | null>(null);
+  const [usdnok,    setUsdnok]    = useState<number | null>(null);
+
+  // Fetch USDNOK rate once on mount
+  useEffect(() => {
+    fetch('/api/prices?tickers=USDNOK%3DX')
+      .then(r => r.json())
+      .then((data: Record<string, number | null>) => {
+        const rate = data['USDNOK=X'];
+        if (typeof rate === 'number') setUsdnok(rate);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Reset form when panel opens
   useEffect(() => {
     if (isOpen) {
-      setTicker('');
-      setBuyPrice('');
-      setShares('');
-      setWeekStr(getCurrentWeekStr());
-      setColor(DEFAULT_COLOR);
-      setInPlay(true);
-      setLoading(false);
-      setError(null);
+      setTicker(''); setBuyPrice(''); setShares('');
+      setNokAmount('5000'); setWeekStr(getCurrentWeekStr());
+      setColor(DEFAULT_COLOR); setInPlay(true);
+      setLoading(false); setError(null);
     }
   }, [isOpen]);
 
+  // NOK → shares (user typed a NOK amount)
+  const handleNokChange = (val: string) => {
+    setNokAmount(val);
+    const nok = parseFloat(val);
+    const price = parseFloat(buyPrice);
+    if (!isNaN(nok) && nok > 0 && !isNaN(price) && price > 0 && usdnok) {
+      const calc = Math.floor(nok / (price * usdnok));
+      setShares(calc > 0 ? String(calc) : '');
+    }
+  };
+
+  // Shares → NOK (user typed shares directly)
+  const handleSharesChange = (val: string) => {
+    setShares(val);
+    const s = parseFloat(val);
+    const price = parseFloat(buyPrice);
+    if (!isNaN(s) && s > 0 && !isNaN(price) && price > 0 && usdnok) {
+      setNokAmount(Math.round(s * price * usdnok).toFixed(0));
+    }
+  };
+
   const hasShares = shares !== '' && parseFloat(shares) > 0;
+
+  // deadline: derived from race end_date when available, else from week picker
+  const deadline = raceEndDate
+    ? raceEndDate.split('T')[0]
+    : weekStr ? weekToFriday(weekStr) : '';
 
   const isValid =
     ticker.trim().length > 0 &&
     parseFloat(buyPrice) > 0 &&
-    weekStr.length > 0;
+    deadline.length > 0;
 
   const handleSubmit = async () => {
     if (!isValid) return;
@@ -81,7 +117,7 @@ export function BettingWindow({ isOpen, onClose, authToken, raceId, onHorseAdded
         ticker: ticker.toUpperCase().trim(),
         buyPrice: parseFloat(parseFloat(buyPrice).toFixed(2)),
         ...(hasShares ? { shares: parseFloat(parseFloat(shares).toFixed(4)) } : {}),
-        deadline: weekToFriday(weekStr),
+        deadline,
         color,
         inPlay,
         ...(raceId ? { raceId } : {}),
@@ -105,25 +141,23 @@ export function BettingWindow({ isOpen, onClose, authToken, raceId, onHorseAdded
   };
 
   const handleReset = () => {
-    setTicker('');
-    setBuyPrice('');
-    setShares('');
-    setWeekStr('');
-    setColor(DEFAULT_COLOR);
-    setInPlay(true);
-    setError(null);
+    setTicker(''); setBuyPrice(''); setShares('');
+    setNokAmount('5000'); setWeekStr('');
+    setColor(DEFAULT_COLOR); setInPlay(true); setError(null);
   };
 
   if (!isOpen) return null;
 
+  const daysLeft = deadline
+    ? Math.max(1, Math.ceil((new Date(deadline).setHours(0,0,0,0) - new Date().setHours(0,0,0,0)) / 86_400_000))
+    : null;
+
   return (
     <>
       <HorseLoader visible={loading} label="Adding horse…" />
+
       {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-black/60 z-40 backdrop-blur-sm"
-        onClick={onClose}
-      />
+      <div className="fixed inset-0 bg-black/60 z-40 backdrop-blur-sm" onClick={onClose} />
 
       {/* Panel */}
       <div
@@ -136,30 +170,20 @@ export function BettingWindow({ isOpen, onClose, authToken, raceId, onHorseAdded
             <h2 className="font-bold text-white text-lg">Enter the Race</h2>
             <p className="text-xs text-slate-500 mt-0.5">Fyll inn og trykk «Add Horse»</p>
           </div>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-slate-800 cursor-pointer"
-            aria-label="Close panel"
-          >
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M18 6L6 18M6 6l12 12" />
-            </svg>
+          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-slate-800 cursor-pointer" aria-label="Close panel">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
           </button>
         </div>
 
         {/* Form */}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+
           {/* Ticker */}
           <div>
-            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-              Ticker Symbol
-            </label>
+            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Ticker Symbol</label>
             <input
-              type="text"
-              value={ticker}
-              onChange={(e) => setTicker(e.target.value.toUpperCase())}
-              placeholder="e.g. AAPL"
-              maxLength={10}
+              type="text" value={ticker} onChange={e => setTicker(e.target.value.toUpperCase())}
+              placeholder="e.g. AAPL" maxLength={10} autoFocus
               className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 font-mono font-bold text-white text-lg tracking-widest placeholder-slate-600 focus:outline-none focus:border-blue-500 transition-colors cursor-text"
             />
           </div>
@@ -167,160 +191,148 @@ export function BettingWindow({ isOpen, onClose, authToken, raceId, onHorseAdded
           {/* Buy Price + Shares */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-                Buy Price ($)
-              </label>
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Buy Price ($)</label>
               <input
-                type="number"
-                value={buyPrice}
-                onChange={(e) => setBuyPrice(e.target.value)}
-                placeholder="0.00"
-                step="0.01"
-                min="0"
+                type="number" value={buyPrice} onChange={e => setBuyPrice(e.target.value)}
+                placeholder="0.00" step="0.01" min="0"
                 className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 font-mono text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 transition-colors cursor-text"
               />
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-                Amount
-                <span className="ml-1 text-slate-600 normal-case font-normal">(shares)</span>
+                Shares
               </label>
               <input
-                type="number"
-                value={shares}
-                onChange={(e) => setShares(e.target.value)}
-                placeholder="0"
-                step="1"
-                min="0"
+                type="number" value={shares} onChange={e => handleSharesChange(e.target.value)}
+                placeholder="0" step="1" min="0"
                 className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 font-mono text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 transition-colors cursor-text"
               />
             </div>
           </div>
 
-          {/* Week */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-              Week Number
-            </label>
-            <input
-              type="week"
-              value={weekStr}
-              onChange={(e) => setWeekStr(e.target.value)}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 font-mono text-white focus:outline-none focus:border-blue-500 transition-colors cursor-pointer"
-              style={{ colorScheme: 'dark' }}
-            />
-            {weekStr && (
-              <p className="text-xs text-slate-600 mt-1">
-                Deadline: fredag {weekToFriday(weekStr)}
+          {/* NOK converter */}
+          <div
+            className="rounded-lg p-3 border"
+            style={{ backgroundColor: '#0a1220', borderColor: '#1E293B' }}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                Invest in NOK
+              </label>
+              {usdnok ? (
+                <span className="text-xs font-mono text-slate-600">1 USD = {usdnok.toFixed(1)} NOK</span>
+              ) : (
+                <span className="text-xs text-slate-700">fetching rate…</span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="number" value={nokAmount}
+                onChange={e => handleNokChange(e.target.value)}
+                placeholder="5000" min="0" step="100"
+                className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 font-mono text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 transition-colors cursor-text text-sm"
+              />
+              <span className="text-slate-400 font-semibold text-sm shrink-0">NOK</span>
+            </div>
+            {!usdnok && (
+              <p className="text-xs text-slate-700 mt-1.5">
+                Enter buy price and shares will be calculated once rate loads.
+              </p>
+            )}
+            {usdnok && parseFloat(buyPrice) > 0 && parseFloat(nokAmount) > 0 && (
+              <p className="text-xs text-slate-600 mt-1.5 font-mono">
+                = {Math.floor(parseFloat(nokAmount) / (parseFloat(buyPrice) * usdnok))} shares
+                · {(parseFloat(buyPrice) * usdnok).toFixed(1)} NOK/share
               </p>
             )}
           </div>
 
+          {/* Deadline — race end_date or week picker */}
+          {raceEndDate ? (
+            <div>
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Deadline</label>
+              <div className="bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2.5 text-slate-400 text-sm font-mono">
+                {new Date(raceEndDate).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+              </div>
+            </div>
+          ) : (
+            <div>
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Week Number</label>
+              <input
+                type="week" value={weekStr} onChange={e => setWeekStr(e.target.value)}
+                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 font-mono text-white focus:outline-none focus:border-blue-500 transition-colors cursor-pointer"
+                style={{ colorScheme: 'dark' }}
+              />
+              {weekStr && (
+                <p className="text-xs text-slate-600 mt-1">Deadline: fredag {weekToFriday(weekStr)}</p>
+              )}
+            </div>
+          )}
+
           {/* Color */}
           <div>
-            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-              Horse Color
-            </label>
+            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Horse Color</label>
             <div className="flex gap-2 flex-wrap">
-              {PRESET_COLORS.map((c) => (
-                <button
-                  key={c}
-                  onClick={() => setColor(c)}
+              {PRESET_COLORS.map(c => (
+                <button key={c} onClick={() => setColor(c)}
                   className="w-8 h-8 rounded-full border-2 transition-transform hover:scale-110 cursor-pointer"
-                  style={{
-                    backgroundColor: c,
-                    borderColor: color === c ? 'white' : 'transparent',
-                    boxShadow: color === c ? `0 0 8px ${c}` : 'none',
-                  }}
+                  style={{ backgroundColor: c, borderColor: color === c ? 'white' : 'transparent', boxShadow: color === c ? `0 0 8px ${c}` : 'none' }}
                   aria-label={`Select color ${c}`}
                 />
               ))}
-              <input
-                type="color"
-                value={color}
-                onChange={(e) => setColor(e.target.value)}
-                className="w-8 h-8 rounded-full border-2 border-slate-600 cursor-pointer bg-transparent"
-                title="Custom color"
-              />
+              <input type="color" value={color} onChange={e => setColor(e.target.value)}
+                className="w-8 h-8 rounded-full border-2 border-slate-600 cursor-pointer bg-transparent" title="Custom color" />
             </div>
           </div>
 
-          {/* Type toggle */}
+          {/* Type */}
           <div>
-            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-              Type
-            </label>
+            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Type</label>
             <div className="flex gap-2">
-              <button
-                onClick={() => setInPlay(true)}
-                className="flex-1 py-2 rounded-lg text-sm font-semibold transition-all cursor-pointer border"
-                style={{
-                  backgroundColor: inPlay ? '#14532d' : '#1a2030',
-                  color: inPlay ? '#86EFAC' : '#475569',
-                  borderColor: inPlay ? '#166534' : '#334155',
-                }}
-              >
+              <button onClick={() => setInPlay(true)} className="flex-1 py-2 rounded-lg text-sm font-semibold transition-all cursor-pointer border"
+                style={{ backgroundColor: inPlay ? '#14532d' : '#1a2030', color: inPlay ? '#86EFAC' : '#475569', borderColor: inPlay ? '#166534' : '#334155' }}>
                 ⚡ Skarp hest
               </button>
-              <button
-                onClick={() => setInPlay(false)}
-                className="flex-1 py-2 rounded-lg text-sm font-semibold transition-all cursor-pointer border"
-                style={{
-                  backgroundColor: !inPlay ? '#1e1a30' : '#1a2030',
-                  color: !inPlay ? '#a78bfa' : '#475569',
-                  borderColor: !inPlay ? '#6d28d9' : '#334155',
-                }}
-              >
+              <button onClick={() => setInPlay(false)} className="flex-1 py-2 rounded-lg text-sm font-semibold transition-all cursor-pointer border"
+                style={{ backgroundColor: !inPlay ? '#1e1a30' : '#1a2030', color: !inPlay ? '#a78bfa' : '#475569', borderColor: !inPlay ? '#6d28d9' : '#334155' }}>
                 👁 Observasjon
               </button>
             </div>
             <p className="text-xs text-slate-600 mt-1.5">
-              {inPlay
-                ? 'Teller i statistikk og snitt.'
-                : 'Vises på banen, men påvirker ikke statistikken.'}
+              {inPlay ? 'Teller i statistikk og snitt.' : 'Vises på banen, men påvirker ikke statistikken.'}
             </p>
           </div>
 
           {/* Quick math */}
           {isValid && (
-            <div
-              className="rounded-lg p-3 border"
-              style={{ backgroundColor: '#0a1628', borderColor: '#1E293B' }}
-            >
+            <div className="rounded-lg p-3 border" style={{ backgroundColor: '#0a1628', borderColor: '#1E293B' }}>
               <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Quick math</p>
               <div className="grid grid-cols-2 gap-y-1 text-xs font-mono">
                 {hasShares && (
                   <>
-                    <span className="text-slate-500">Position size</span>
-                    <span className="text-slate-300 text-right">
-                      ${(parseFloat(shares) * parseFloat(buyPrice)).toFixed(2)}
-                    </span>
+                    <span className="text-slate-500">Position (USD)</span>
+                    <span className="text-slate-300 text-right">${(parseFloat(shares) * parseFloat(buyPrice)).toFixed(2)}</span>
                   </>
                 )}
-                {(() => {
-                  const friday = weekToFriday(weekStr);
-                  const now = new Date();
-                  now.setHours(0, 0, 0, 0);
-                  const end = new Date(friday);
-                  end.setHours(0, 0, 0, 0);
-                  const daysLeft = Math.max(1, Math.ceil((end.getTime() - now.getTime()) / 86_400_000));
-                  return (
-                    <>
-                      <span className="text-slate-500">Days to Friday</span>
-                      <span className="text-slate-300 text-right">{daysLeft}d</span>
-                    </>
-                  );
-                })()}
+                {hasShares && usdnok && (
+                  <>
+                    <span className="text-slate-500">Position (NOK)</span>
+                    <span className="text-slate-300 text-right">≈ {Math.round(parseFloat(shares) * parseFloat(buyPrice) * usdnok).toLocaleString('nb-NO')} kr</span>
+                  </>
+                )}
+                {daysLeft !== null && (
+                  <>
+                    <span className="text-slate-500">Days left</span>
+                    <span className="text-slate-300 text-right">{daysLeft}d</span>
+                  </>
+                )}
               </div>
             </div>
           )}
 
           {/* Error */}
           {error && (
-            <div
-              className="rounded-lg px-3 py-2.5 text-sm"
-              style={{ background: '#1a0a0a', border: '1px solid #3a1818', color: '#f87171' }}
-            >
+            <div className="rounded-lg px-3 py-2.5 text-sm" style={{ background: '#1a0a0a', border: '1px solid #3a1818', color: '#f87171' }}>
               {error}
             </div>
           )}
@@ -328,21 +340,12 @@ export function BettingWindow({ isOpen, onClose, authToken, raceId, onHorseAdded
 
         {/* Footer */}
         <div className="px-5 py-4 border-t border-slate-800 flex gap-2">
-          <button
-            onClick={handleReset}
-            className="flex-1 py-2.5 rounded-lg border border-slate-700 text-slate-400 hover:text-white hover:border-slate-600 text-sm font-semibold transition-colors cursor-pointer"
-          >
+          <button onClick={handleReset} className="flex-1 py-2.5 rounded-lg border border-slate-700 text-slate-400 hover:text-white hover:border-slate-600 text-sm font-semibold transition-colors cursor-pointer">
             Reset
           </button>
-          <button
-            onClick={handleSubmit}
-            disabled={!isValid || loading}
+          <button onClick={handleSubmit} disabled={!isValid || loading}
             className="flex-1 py-2.5 rounded-lg text-sm font-bold transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{
-              backgroundColor: isValid && !loading ? '#22C55E' : '#1E293B',
-              color: isValid && !loading ? '#020617' : '#475569',
-            }}
-          >
+            style={{ backgroundColor: isValid && !loading ? '#22C55E' : '#1E293B', color: isValid && !loading ? '#020617' : '#475569' }}>
             {loading ? 'Legger til…' : '🏇 Add Horse'}
           </button>
         </div>

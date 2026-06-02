@@ -359,6 +359,7 @@ export default function App() {
         onClose={() => setBettingOpen(false)}
         authToken={authToken ?? ''}
         raceId={selectedRace?.id ?? null}
+        raceEndDate={selectedRace?.end_date ?? null}
         onHorseAdded={() => { fetchPositions(); setBettingOpen(false); }}
       />
     </div>
