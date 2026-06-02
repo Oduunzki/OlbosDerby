@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { HorseLoader, runWithLoader } from './HorseLoader';
 
 function getCurrentWeekStr(): string {
   const now = new Date();
@@ -85,16 +86,18 @@ export function BettingWindow({ isOpen, onClose, authToken, raceId, onHorseAdded
         inPlay,
         ...(raceId ? { raceId } : {}),
       };
-      const res = await fetch('/api/positions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error ?? `Server error ${res.status}`);
-      }
-      onHorseAdded();
+      await runWithLoader(async () => {
+        const res = await fetch('/api/positions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error ?? `Server error ${res.status}`);
+        }
+        onHorseAdded();
+      }, setLoading);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Noe gikk galt');
       setLoading(false);
@@ -115,6 +118,7 @@ export function BettingWindow({ isOpen, onClose, authToken, raceId, onHorseAdded
 
   return (
     <>
+      <HorseLoader visible={loading} label="Adding horse…" />
       {/* Backdrop */}
       <div
         className="fixed inset-0 bg-black/60 z-40 backdrop-blur-sm"

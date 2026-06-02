@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { Race } from '../types';
+import { HorseLoader, runWithLoader } from './HorseLoader';
 
 const GOLD        = '#c8a040';
 const GOLD_DIM    = '#a07830';
@@ -364,11 +365,13 @@ interface Props {
 }
 
 export function LobbyScreen({ authToken, userId, onSelectRace, onLogout }: Props) {
-  const [races,      setRaces]      = useState<Race[]>([]);
-  const [loading,    setLoading]    = useState(true);
-  const [error,      setError]      = useState('');
-  const [showCreate, setShowCreate] = useState(false);
-  const [editRace,   setEditRace]   = useState<Race | null>(null);
+  const [races,        setRaces]        = useState<Race[]>([]);
+  const [loading,      setLoading]      = useState(true);
+  const [actionLoad,   setActionLoad]   = useState(false);
+  const [actionLabel,  setActionLabel]  = useState('');
+  const [error,        setError]        = useState('');
+  const [showCreate,   setShowCreate]   = useState(false);
+  const [editRace,     setEditRace]     = useState<Race | null>(null);
 
   const authHeader = { Authorization: `Bearer ${authToken}` };
 
@@ -384,18 +387,24 @@ export function LobbyScreen({ authToken, userId, onSelectRace, onLogout }: Props
 
   const handleCreate = async (data: { name: string; emoji: string; description: string; interval: string }) => {
     const id = data.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') + '-' + Date.now();
-    const res = await fetch('/api/races', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeader }, body: JSON.stringify({ id, ...data }) });
-    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error ?? 'Error'); }
     setShowCreate(false);
-    fetchRaces();
+    setActionLabel('Creating race…');
+    await runWithLoader(async () => {
+      const res = await fetch('/api/races', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeader }, body: JSON.stringify({ id, ...data }) });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error ?? 'Error'); }
+      fetchRaces();
+    }, setActionLoad);
   };
 
   const handleEdit = async (data: { name: string; emoji: string; description: string; interval: string }) => {
     if (!editRace) return;
-    const res = await fetch(`/api/races/${editRace.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authHeader }, body: JSON.stringify(data) });
-    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error ?? 'Error'); }
     setEditRace(null);
-    fetchRaces();
+    setActionLabel('Saving changes…');
+    await runWithLoader(async () => {
+      const res = await fetch(`/api/races/${editRace.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authHeader }, body: JSON.stringify(data) });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error ?? 'Error'); }
+      fetchRaces();
+    }, setActionLoad);
   };
 
   const handleDelete = async (id: string) => {
@@ -511,6 +520,8 @@ export function LobbyScreen({ authToken, userId, onSelectRace, onLogout }: Props
           <RaceForm initial={{ name: editRace.name, emoji: editRace.emoji, description: editRace.description, interval: editRace.interval }} submitLabel="Save Changes" onSubmit={handleEdit} onCancel={() => setEditRace(null)} />
         </Modal>
       )}
+
+      <HorseLoader visible={actionLoad} label={actionLabel} />
     </div>
   );
 }
