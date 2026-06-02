@@ -20,6 +20,19 @@ export const USERS_LIST = USERS;
 
 export async function initSchema() {
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS races (
+      id          TEXT PRIMARY KEY,
+      name        TEXT NOT NULL,
+      emoji       TEXT NOT NULL DEFAULT '🏇',
+      description TEXT NOT NULL DEFAULT '',
+      status      TEXT NOT NULL DEFAULT 'active',
+      interval    TEXT NOT NULL DEFAULT 'week',
+      start_date  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      end_date    TIMESTAMPTZ,
+      created_by  TEXT,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS users (
       id         TEXT PRIMARY KEY,
       name       TEXT NOT NULL,
@@ -97,6 +110,7 @@ export async function initSchema() {
       deadline   TEXT NOT NULL,
       color      TEXT NOT NULL,
       in_play    BOOLEAN NOT NULL DEFAULT TRUE,
+      race_id    TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
@@ -119,6 +133,26 @@ export async function initSchema() {
   // Migrate: add sold_price column to positions
   await pool.query(`
     ALTER TABLE positions ADD COLUMN IF NOT EXISTS sold_price NUMERIC(12,4);
+  `);
+
+  // Migrate: add race-related columns to races table
+  await pool.query(`
+    ALTER TABLE races ADD COLUMN IF NOT EXISTS interval   TEXT NOT NULL DEFAULT 'week';
+    ALTER TABLE races ADD COLUMN IF NOT EXISTS start_date TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    ALTER TABLE races ADD COLUMN IF NOT EXISTS end_date   TIMESTAMPTZ;
+    ALTER TABLE races ADD COLUMN IF NOT EXISTS created_by TEXT;
+    ALTER TABLE races ADD COLUMN IF NOT EXISTS locked     BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE races ADD COLUMN IF NOT EXISTS repeating  BOOLEAN NOT NULL DEFAULT FALSE;
+  `);
+
+  // Migrate: add race_id to positions
+  await pool.query(`
+    ALTER TABLE positions ADD COLUMN IF NOT EXISTS race_id TEXT;
+  `);
+
+  // Assign existing positions without a race to main-derby
+  await pool.query(`
+    UPDATE positions SET race_id = 'main-derby' WHERE race_id IS NULL;
   `);
 
   // Seed fixed users (upsert PIN hash so it updates if changed)
@@ -574,55 +608,268 @@ export async function logout(token) {
   }
 }
 
+// ── Races + Positions (horses) ───────────────────────────────────────────────
+
+export function calculateEndDate(interval) {
+  const now = new Date();
+  if (interval === 'intra-day') {
+    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 22, 0, 0));
+    if (Date.now() >= end.getTime()) {
+      end.setUTCDate(end.getUTCDate() + 1);
+      while (end.getUTCDay() === 0 || end.getUTCDay() === 6) end.setUTCDate(end.getUTCDate() + 1);
+    }
+    return end;
+  }
+  if (interval === 'week') {
+    const d = new Date(now);
+    d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 22, 0, 0));
+  }
+  if (interval === 'quarter') {
+    const quarterEndMonth = Math.floor(now.getUTCMonth() / 3) * 3 + 2;
+    const lastDay = new Date(Date.UTC(now.getUTCFullYear(), quarterEndMonth + 1, 0));
+    return new Date(Date.UTC(lastDay.getUTCFullYear(), lastDay.getUTCMonth(), lastDay.getUTCDate(), 22, 0, 0));
+  }
+  return null;
+}
+
+const DEFAULT_RACES = [
+  { id: 'main-derby', name: 'The Olbos Derby', emoji: '🏇', description: 'Swing trading long positions — bet on rockets', interval: 'week', locked: true, repeating: true },
+];
+
+export async function seedDefaultRaces() {
+  const endDate = calculateEndDate('week');
+  for (const r of DEFAULT_RACES) {
+    await pool.query(
+      `INSERT INTO races (id, name, emoji, description, interval, start_date, end_date, locked, repeating)
+       VALUES ($1,$2,$3,$4,$5,NOW(),$6,$7,$8)
+       ON CONFLICT (id) DO UPDATE SET locked = $7, repeating = $8`,
+      [r.id, r.name, r.emoji, r.description, r.interval, endDate, r.locked, r.repeating]
+    ).catch(() => {});
+  }
+}
+
+// In-memory store for no-DB mode
+const mem = {
+  races: DEFAULT_RACES.map(r => ({
+    ...r, status: 'active', position_count: 0,
+    start_date: new Date().toISOString(),
+    end_date: calculateEndDate(r.interval)?.toISOString() ?? null,
+    created_by: null, created_at: new Date().toISOString(),
+  })),
+  positions: [],      // { ...position, race_id }
+  positionsSeeded: false,
+};
+
+function toPositionRow(r) {
+  return {
+    id: r.id, ticker: r.ticker,
+    buyPrice: parseFloat(r.buy_price ?? r.buyPrice),
+    ...(r.shares != null ? { shares: parseFloat(r.shares) } : {}),
+    deadline: r.deadline, color: r.color,
+    inPlay: r.in_play ?? r.inPlay ?? true,
+    ...(r.sold_price != null ? { soldPrice: parseFloat(r.sold_price) } : {}),
+    ...(r.sold_price == null && r.soldPrice != null ? { soldPrice: r.soldPrice } : {}),
+    raceId: r.race_id ?? r.raceId ?? null,
+  };
+}
+
 // ── Positions (horses) ────────────────────────────────────────────────────────
 
-export async function getPositions() {
-  const res = await pool.query('SELECT * FROM positions ORDER BY created_at ASC');
-  return res.rows.map(r => ({
-    id: r.id,
-    ticker: r.ticker,
-    buyPrice: parseFloat(r.buy_price),
-    ...(r.shares != null ? { shares: parseFloat(r.shares) } : {}),
-    deadline: r.deadline,
-    color: r.color,
-    inPlay: r.in_play,
-    ...(r.sold_price != null ? { soldPrice: parseFloat(r.sold_price) } : {}),
-  }));
+export async function getPositions(raceId = null) {
+  if (dbAvailable) {
+    try {
+      const res = raceId
+        ? await pool.query('SELECT * FROM positions WHERE race_id = $1 ORDER BY created_at ASC', [raceId])
+        : await pool.query('SELECT * FROM positions ORDER BY created_at ASC');
+      return res.rows.map(toPositionRow);
+    } catch { /* fall through */ }
+  }
+  return raceId ? mem.positions.filter(p => p.raceId === raceId) : [...mem.positions];
 }
 
-export async function sellPosition(id, soldPrice) {
-  await pool.query('UPDATE positions SET sold_price = $1 WHERE id = $2', [soldPrice, id]);
-}
-
-export async function setInPlay(id, inPlay) {
-  await pool.query('UPDATE positions SET in_play = $1 WHERE id = $2', [inPlay, id]);
-}
-
-export async function addPosition({ id, ticker, buyPrice, shares, deadline, color, inPlay }) {
-  await pool.query(
-    `INSERT INTO positions (id, ticker, buy_price, shares, deadline, color, in_play)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    [id, ticker, buyPrice, shares ?? null, deadline, color, inPlay ?? true]
-  );
+export async function addPosition({ id, ticker, buyPrice, shares, deadline, color, inPlay, raceId }) {
+  if (dbAvailable) {
+    try {
+      await pool.query(
+        `INSERT INTO positions (id, ticker, buy_price, shares, deadline, color, in_play, race_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [id, ticker, buyPrice, shares ?? null, deadline, color, inPlay ?? true, raceId ?? null]
+      );
+      return;
+    } catch { /* fall through */ }
+  }
+  mem.positions.push({ id, ticker, buyPrice, ...(shares != null ? { shares } : {}), deadline, color, inPlay: inPlay ?? true, raceId: raceId ?? null });
 }
 
 export async function removePosition(id) {
-  await pool.query('DELETE FROM positions WHERE id = $1', [id]);
+  if (dbAvailable) {
+    try { await pool.query('DELETE FROM positions WHERE id = $1', [id]); return; } catch { /* fall through */ }
+  }
+  const idx = mem.positions.findIndex(p => p.id === id);
+  if (idx !== -1) mem.positions.splice(idx, 1);
 }
 
-export async function seedPositionsFromJson(stocks) {
-  const res = await pool.query('SELECT COUNT(*) FROM positions');
-  if (parseInt(res.rows[0].count) > 0) return;
-  for (const s of stocks) {
-    await addPosition({
-      id: s.id,
-      ticker: s.ticker,
-      buyPrice: s.buyPrice,
-      shares: s.shares,
-      deadline: s.deadline,
-      color: s.color,
-      inPlay: s.inPlay ?? true,
+export async function sellPosition(id, soldPrice) {
+  if (dbAvailable) {
+    try { await pool.query('UPDATE positions SET sold_price = $1 WHERE id = $2', [soldPrice, id]); return; } catch { /* fall through */ }
+  }
+  const p = mem.positions.find(p => p.id === id);
+  if (p) p.soldPrice = soldPrice;
+}
+
+export async function setInPlay(id, inPlay) {
+  if (dbAvailable) {
+    try { await pool.query('UPDATE positions SET in_play = $1 WHERE id = $2', [inPlay, id]); return; } catch { /* fall through */ }
+  }
+  const p = mem.positions.find(p => p.id === id);
+  if (p) p.inPlay = inPlay;
+}
+
+export async function seedPositionsFromJson(stocks, defaultRaceId = 'main-derby') {
+  if (dbAvailable) {
+    try {
+      const res = await pool.query('SELECT COUNT(*) FROM positions');
+      if (parseInt(res.rows[0].count) > 0) return;
+      for (const s of stocks) {
+        await addPosition({ id: s.id, ticker: s.ticker, buyPrice: s.buyPrice, shares: s.shares, deadline: s.deadline, color: s.color, inPlay: s.inPlay ?? true, raceId: defaultRaceId });
+      }
+      console.log(`[positions] seeded ${stocks.length} positions from stocks.json`);
+      return;
+    } catch { /* fall through */ }
+  }
+  if (!mem.positionsSeeded) {
+    mem.positions = stocks.map(s => ({ id: s.id, ticker: s.ticker, buyPrice: s.buyPrice, ...(s.shares != null ? { shares: s.shares } : {}), deadline: s.deadline, color: s.color, inPlay: s.inPlay ?? true, raceId: defaultRaceId, ...(s.soldPrice != null ? { soldPrice: s.soldPrice } : {}) }));
+    mem.positionsSeeded = true;
+    console.log(`[positions] seeded ${stocks.length} positions in memory`);
+  }
+}
+
+async function closeExpiredRaces() {
+  const now = new Date();
+  if (dbAvailable) {
+    try {
+      // Find repeating races about to be closed so we can spawn next edition
+      const expiredRepeating = await pool.query(
+        `SELECT * FROM races WHERE status = 'active' AND repeating = TRUE AND end_date IS NOT NULL AND end_date < $1`,
+        [now]
+      );
+      for (const r of expiredRepeating.rows) {
+        const existing = await pool.query(
+          `SELECT id FROM races WHERE status = 'active' AND repeating = TRUE AND name = $1 AND id != $2`,
+          [r.name, r.id]
+        );
+        if (existing.rows.length === 0) {
+          const newId = `${r.id}-${Date.now()}`;
+          const newEnd = calculateEndDate(r.interval);
+          await pool.query(
+            `INSERT INTO races (id, name, emoji, description, interval, start_date, end_date, locked, repeating, created_by)
+             VALUES ($1,$2,$3,$4,$5,NOW(),$6,$7,$8,$9) ON CONFLICT DO NOTHING`,
+            [newId, r.name, r.emoji, r.description, r.interval, newEnd, r.locked, r.repeating, r.created_by]
+          );
+          console.log(`[races] spawned next edition of "${r.name}": ${newId}`);
+        }
+      }
+      await pool.query(
+        `UPDATE races SET status = 'closed' WHERE status = 'active' AND end_date IS NOT NULL AND end_date < $1`,
+        [now]
+      );
+    } catch { /* ignore */ }
+  } else {
+    for (const r of mem.races) {
+      if (r.status !== 'active' || !r.end_date || new Date(r.end_date) >= now) continue;
+      if (r.repeating) {
+        const hasNext = mem.races.some(x => x.status === 'active' && x.repeating && x.name === r.name && x.id !== r.id);
+        if (!hasNext) {
+          const newEnd = calculateEndDate(r.interval);
+          mem.races.push({
+            ...r, id: `${r.id}-${Date.now()}`,
+            status: 'active', position_count: 0,
+            start_date: now.toISOString(),
+            end_date: newEnd?.toISOString() ?? null,
+            created_at: now.toISOString(),
+          });
+        }
+      }
+      r.status = 'closed';
+    }
+  }
+}
+
+export async function getRaces() {
+  await closeExpiredRaces();
+  if (dbAvailable) {
+    try {
+      const res = await pool.query(`
+        SELECT r.*, COUNT(p.id)::int AS position_count
+        FROM races r
+        LEFT JOIN positions p ON p.race_id = r.id
+        GROUP BY r.id
+        ORDER BY r.created_at ASC
+      `);
+      return res.rows;
+    } catch { /* fall through */ }
+  }
+  return mem.races;
+}
+
+export async function createRace({ id, name, emoji, description, interval, createdBy, locked = false, repeating = false }) {
+  const endDate = calculateEndDate(interval ?? 'week');
+  if (dbAvailable) {
+    try {
+      await pool.query(
+        `INSERT INTO races (id, name, emoji, description, interval, start_date, end_date, created_by, locked, repeating)
+         VALUES ($1,$2,$3,$4,$5,NOW(),$6,$7,$8,$9)`,
+        [id, name, emoji ?? '🏇', description ?? '', interval ?? 'week', endDate, createdBy ?? null, locked, repeating]
+      );
+      return;
+    } catch { /* fall through */ }
+  }
+  if (!mem.races.find(r => r.id === id)) {
+    mem.races.push({
+      id, name, emoji: emoji ?? '🏇', description: description ?? '',
+      interval: interval ?? 'week', status: 'active', position_count: 0,
+      locked, repeating,
+      start_date: new Date().toISOString(),
+      end_date: endDate?.toISOString() ?? null,
+      created_by: createdBy ?? null, created_at: new Date().toISOString(),
     });
   }
-  console.log(`[positions] seeded ${stocks.length} positions from stocks.json`);
 }
+
+export async function deleteRace(id) {
+  if (dbAvailable) {
+    try {
+      const res = await pool.query('SELECT locked FROM races WHERE id = $1', [id]);
+      if (res.rows[0]?.locked) throw new Error('Race is locked');
+      await pool.query('DELETE FROM races WHERE id = $1', [id]);
+      return;
+    } catch (err) { if (err.message === 'Race is locked') throw err; /* else fall through */ }
+  }
+  const idx = mem.races.findIndex(r => r.id === id);
+  if (idx !== -1) {
+    if (mem.races[idx].locked) throw new Error('Race is locked');
+    mem.races.splice(idx, 1);
+  }
+}
+
+export async function updateRace(id, { name, emoji, description }) {
+  if (dbAvailable) {
+    try {
+      const sets = [], vals = [];
+      if (name        != null) { sets.push(`name        = $${sets.length + 1}`); vals.push(name); }
+      if (emoji       != null) { sets.push(`emoji       = $${sets.length + 1}`); vals.push(emoji); }
+      if (description != null) { sets.push(`description = $${sets.length + 1}`); vals.push(description); }
+      if (sets.length === 0) return;
+      vals.push(id);
+      await pool.query(`UPDATE races SET ${sets.join(', ')} WHERE id = $${vals.length}`, vals);
+      return;
+    } catch { /* fall through */ }
+  }
+  const r = mem.races.find(r => r.id === id);
+  if (!r) return;
+  if (name        != null) r.name        = name;
+  if (emoji       != null) r.emoji       = emoji;
+  if (description != null) r.description = description;
+}
+

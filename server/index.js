@@ -175,6 +175,49 @@ app.get('/api/price-history', async (req, res) => {
 // Health check
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 
+// ── Races (sessions) API ──────────────────────────────────────────────────────
+
+app.get('/api/races', requireAuth, async (req, res) => {
+  try {
+    res.json(await db.getRaces());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/races', requireAuth, async (req, res) => {
+  try {
+    const { id, name, emoji, description, interval } = req.body;
+    if (!id || !name) return res.status(400).json({ error: 'id and name required' });
+    await db.createRace({ id, name, emoji, description, interval, createdBy: req.userId });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.patch('/api/races/:id', requireAuth, async (req, res) => {
+  try {
+    const races = await db.getRaces();
+    const race = races.find(r => r.id === req.params.id);
+    if (race?.locked) return res.status(403).json({ error: 'Race is locked' });
+    const { name, emoji, description } = req.body;
+    await db.updateRace(req.params.id, { name, emoji, description });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete('/api/races/:id', requireAuth, async (req, res) => {
+  try {
+    await db.deleteRace(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(err.message === 'Race is locked' ? 403 : 400).json({ error: err.message });
+  }
+});
+
 // ── Positions (horses) API ────────────────────────────────────────────────────
 
 const stocksJsonPath = join(__dirname, '../src/data/stocks.json');
@@ -193,10 +236,8 @@ function writeStocksJson(stocks) {
 
 app.get('/api/positions', requireAuth, async (req, res) => {
   try {
-    if (db.isDbAvailable()) {
-      return res.json(await db.getPositions());
-    }
-    res.json(readStocksJson());
+    const raceId = typeof req.query.raceId === 'string' ? req.query.raceId : null;
+    res.json(await db.getPositions(raceId));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -204,25 +245,17 @@ app.get('/api/positions', requireAuth, async (req, res) => {
 
 app.post('/api/positions', requireAuth, async (req, res) => {
   try {
-    const { id, ticker, buyPrice, shares, deadline, color, inPlay } = req.body;
+    const { id, ticker, buyPrice, shares, deadline, color, inPlay, raceId } = req.body;
     if (!id || !ticker || !buyPrice || !deadline || !color) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
-
+    await db.addPosition({ id, ticker, buyPrice, shares, deadline, color, inPlay, raceId: raceId ?? null });
     if (db.isDbAvailable()) {
-      await db.addPosition({ id, ticker, buyPrice, shares, deadline, color, inPlay });
       const positions = await db.getPositions();
       const state = await db.getState();
       const { shorts, darkHorse } = loadCurrentPositions();
       await db.saveWeekPositions(state.weekKey, state.seasonId, positions, shorts, darkHorse);
-    } else {
-      const stocks = readStocksJson();
-      const entry = { id, ticker, buyPrice, ...(shares ? { shares } : {}), deadline, color };
-      if (inPlay === false) entry.inPlay = false;
-      stocks.push(entry);
-      writeStocksJson(stocks);
     }
-
     res.json({ ok: true });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -232,21 +265,12 @@ app.post('/api/positions', requireAuth, async (req, res) => {
 app.patch('/api/positions/:id/in-play', requireAuth, async (req, res) => {
   try {
     const inPlay = req.body.inPlay !== false;
+    await db.setInPlay(req.params.id, inPlay);
     if (db.isDbAvailable()) {
-      await db.setInPlay(req.params.id, inPlay);
       const positions = await db.getPositions();
       const state = await db.getState();
       const { shorts, darkHorse } = loadCurrentPositions();
       await db.saveWeekPositions(state.weekKey, state.seasonId, positions, shorts, darkHorse);
-    } else {
-      const stocks = readStocksJson().map(s =>
-        s.id === req.params.id ? { ...s, ...(inPlay ? {} : { inPlay: false }), ...(!inPlay ? {} : { inPlay: undefined }) } : s
-      );
-      // Clean up undefined inPlay (means true/default)
-      writeStocksJson(stocks.map(s => {
-        if (s.inPlay === undefined || s.inPlay === true) { const { inPlay: _, ...rest } = s; return rest; }
-        return s;
-      }));
     }
     res.json({ ok: true });
   } catch (err) {
@@ -260,17 +284,12 @@ app.patch('/api/positions/:id/sell', requireAuth, async (req, res) => {
     if (!soldPrice || isNaN(parseFloat(soldPrice))) {
       return res.status(400).json({ error: 'soldPrice required' });
     }
+    await db.sellPosition(req.params.id, parseFloat(soldPrice));
     if (db.isDbAvailable()) {
-      await db.sellPosition(req.params.id, parseFloat(soldPrice));
       const positions = await db.getPositions();
       const state = await db.getState();
       const { shorts, darkHorse } = loadCurrentPositions();
       await db.saveWeekPositions(state.weekKey, state.seasonId, positions, shorts, darkHorse);
-    } else {
-      const stocks = readStocksJson().map(s =>
-        s.id === req.params.id ? { ...s, soldPrice: parseFloat(soldPrice) } : s
-      );
-      writeStocksJson(stocks);
     }
     res.json({ ok: true });
   } catch (err) {
@@ -280,15 +299,12 @@ app.patch('/api/positions/:id/sell', requireAuth, async (req, res) => {
 
 app.delete('/api/positions/:id', requireAuth, async (req, res) => {
   try {
+    await db.removePosition(req.params.id);
     if (db.isDbAvailable()) {
-      await db.removePosition(req.params.id);
       const positions = await db.getPositions();
       const state = await db.getState();
       const { shorts, darkHorse } = loadCurrentPositions();
       await db.saveWeekPositions(state.weekKey, state.seasonId, positions, shorts, darkHorse);
-    } else {
-      const stocks = readStocksJson().filter(s => s.id !== req.params.id);
-      writeStocksJson(stocks);
     }
     res.json({ ok: true });
   } catch (err) {
@@ -526,8 +542,8 @@ app.use((_req, res) => {
 const PORT = Number(process.env.PORT) || 4000;
 
 db.initSchema()
-  .then(() => db.ensureCurrentSeason())
-  .then(async (seasonId) => {
+  .then(() => Promise.all([db.ensureCurrentSeason(), db.seedDefaultRaces()]))
+  .then(async ([seasonId]) => {
     const weekKey = db.getCurrentWeekKey();
     const { stocks, shorts, darkHorse } = loadCurrentPositions();
     await db.seedPositionsFromJson(stocks);

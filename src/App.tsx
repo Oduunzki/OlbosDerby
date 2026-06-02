@@ -3,13 +3,14 @@ import { useMarketOpenCountdown } from './hooks/useMarketOpenCountdown';
 import { useSoundEngine } from './hooks/useSoundEngine';
 import { SoundContext } from './context/SoundContext';
 import shortsData from './data/shorts.json';
-import type { Stock, ShortStock, DarkHorseConfig } from './types';
+import type { Stock, ShortStock, DarkHorseConfig, Race } from './types';
 import { useStockPrices } from './hooks/useStockPrices';
 import { ShortTrack } from './components/ShortTrack';
 import { ShortHorseLane } from './components/ShortHorseLane';
 import { BettingWindow } from './components/BettingWindow';
 import { BettingPanel } from './components/BettingPanel';
 import { LoginScreen } from './components/LoginScreen';
+import { LobbyScreen } from './components/LobbyScreen';
 import { CountdownOverlay } from './components/CountdownOverlay';
 
 const shortPositions: ShortStock[] = (shortsData as { darkHorse: DarkHorseConfig; positions: ShortStock[] }).positions;
@@ -34,6 +35,7 @@ export default function App() {
   const { show: showCountdown, dismiss: dismissCountdown } = useMarketOpenCountdown();
   const [authToken, setAuthToken] = useState<string | null>(() => localStorage.getItem('auth-token'));
   const [authUserId, setAuthUserId] = useState<string | null>(() => localStorage.getItem('auth-user-id'));
+  const [selectedRace, setSelectedRace] = useState<Race | null>(null);
   const { playSound, muted, toggleMute } = useSoundEngine();
   const [stocks, setStocks] = useState<Stock[]>([]);
 
@@ -46,12 +48,13 @@ export default function App() {
   }, []);
 
   const fetchPositions = useCallback(() => {
-    if (!authToken) return;
-    fetch('/api/positions', { headers: { Authorization: `Bearer ${authToken}` } })
+    if (!authToken || !selectedRace) return;
+    const url = `/api/positions?raceId=${encodeURIComponent(selectedRace.id)}`;
+    fetch(url, { headers: { Authorization: `Bearer ${authToken}` } })
       .then(r => r.ok ? r.json() : [])
       .then((data: Stock[]) => setStocks(data))
       .catch(() => {});
-  }, [authToken]);
+  }, [authToken, selectedRace]);
 
   useEffect(() => { fetchPositions(); }, [fetchPositions]);
 
@@ -70,6 +73,7 @@ export default function App() {
     localStorage.removeItem('auth-user-id');
     setAuthToken(null);
     setAuthUserId(null);
+    setSelectedRace(null);
   };
 
   const stocksAsShorts: ShortStock[] = stocks.map(s => ({
@@ -102,6 +106,17 @@ export default function App() {
     return <LoginScreen onLogin={handleLogin} />;
   }
 
+  if (!selectedRace) {
+    return (
+      <LobbyScreen
+        authToken={authToken}
+        userId={authUserId}
+        onSelectRace={setSelectedRace}
+        onLogout={handleLogout}
+      />
+    );
+  }
+
   return (
     <SoundContext.Provider value={{ playSound, muted, toggleMute }}>
     <div style={{ minHeight: '100vh', background: '#07100a' }}>
@@ -120,6 +135,24 @@ export default function App() {
 
           {/* Logo */}
           <div style={{ marginRight: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <button
+              onClick={() => setSelectedRace(null)}
+              title="Back to races"
+              style={{
+                background: 'none', border: '1px solid #1a3020', borderRadius: '8px',
+                padding: '4px 8px', cursor: 'pointer', color: '#3a5040',
+                lineHeight: 1, display: 'flex', alignItems: 'center', gap: '4px',
+                fontFamily: 'Inter, sans-serif', fontSize: '11px', letterSpacing: '0.04em',
+                transition: 'color 0.15s, border-color 0.15s', flexShrink: 0,
+              }}
+              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = '#72c48a'; (e.currentTarget as HTMLButtonElement).style.borderColor = '#2a4a30'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = '#3a5040'; (e.currentTarget as HTMLButtonElement).style.borderColor = '#1a3020'; }}
+            >
+              <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.2">
+                <path d="M10 3L5 8l5 5" />
+              </svg>
+              Races
+            </button>
             <div style={{
               width: '38px', height: '38px', borderRadius: '50%',
               background: 'linear-gradient(135deg, #1a3520, #0e2018)',
@@ -136,7 +169,7 @@ export default function App() {
                 fontSize: '10px', color: '#3a5040', margin: 0,
                 letterSpacing: '0.12em', textTransform: 'uppercase',
               }}>
-                swing trading · horse edition
+                {selectedRace.emoji} {selectedRace.name}
               </p>
             </div>
           </div>
@@ -325,6 +358,7 @@ export default function App() {
         isOpen={bettingOpen}
         onClose={() => setBettingOpen(false)}
         authToken={authToken ?? ''}
+        raceId={selectedRace?.id ?? null}
         onHorseAdded={() => { fetchPositions(); setBettingOpen(false); }}
       />
     </div>

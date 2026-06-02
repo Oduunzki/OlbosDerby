@@ -33,3 +33,19 @@ export interface DarkHorseConfig {
   startDate: string;
   label: string;
 }
+
+export interface Race {
+  id: string;
+  name: string;
+  emoji: string;
+  description: string;
+  status: 'active' | 'closed';
+  interval: 'intra-day' | 'week' | 'quarter';
+  start_date: string;
+  end_date: string | null;
+  created_by: string | null;
+  created_at: string;
+  locked: boolean;
+  repeating: boolean;
+  position_count?: number;
+}

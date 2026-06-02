@@ -13,6 +13,7 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   authToken: string;
+  raceId: string | null;
   onHorseAdded: () => void;
 }
 
@@ -38,7 +39,7 @@ function weekToFriday(weekStr: string): string {
   return friday.toISOString().split('T')[0];
 }
 
-export function BettingWindow({ isOpen, onClose, authToken, onHorseAdded }: Props) {
+export function BettingWindow({ isOpen, onClose, authToken, raceId, onHorseAdded }: Props) {
   const [ticker, setTicker] = useState('');
   const [buyPrice, setBuyPrice] = useState('');
   const [shares, setShares] = useState('');
@@ -82,6 +83,7 @@ export function BettingWindow({ isOpen, onClose, authToken, onHorseAdded }: Prop
         deadline: weekToFriday(weekStr),
         color,
         inPlay,
+        ...(raceId ? { raceId } : {}),
       };
       const res = await fetch('/api/positions', {
         method: 'POST',
